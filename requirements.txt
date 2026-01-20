@@ -1,0 +1,8 @@
+passlib[bcrypt] 
+SQLAlchemy
+fastapi[all]
+pyjwt
+pydantic
+pydantic-settings
+pytest
+pytest-cov
