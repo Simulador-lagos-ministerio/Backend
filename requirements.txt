@@ -6,3 +6,4 @@ pydantic
 pydantic-settings
 pytest
 pytest-cov
+python-jose
