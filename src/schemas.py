@@ -1,4 +1,13 @@
-import pydantic as _pydantic
+from pydantic import BaseModel, EmailStr
 
-class UserBase(_pydantic.BaseModel):
-    email: str
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"

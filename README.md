@@ -26,7 +26,7 @@
 
 ### 1. Navigate to the application directory:
 
-- cd backend/
+- cd Backend/
 
 ### 2. Run tests:
 
