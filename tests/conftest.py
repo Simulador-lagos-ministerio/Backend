@@ -11,8 +11,9 @@ from sqlalchemy.pool import StaticPool
 src_dir = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_dir))
 
-import src.database as database
-from src.main import app, get_db as app_get_db
+from app import database
+from app.database import get_db
+from app.main import app
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
@@ -25,7 +26,7 @@ def db_engine():
         poolclass=StaticPool,   
     )
 
-    import src.models
+    import app.users.models
     database.Base.metadata.create_all(bind=engine)
 
     yield engine
@@ -56,7 +57,7 @@ def client(db_engine):
         finally:
             db.close()
 
-    app.dependency_overrides[app_get_db] = override_get_db
+    app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as c:
         yield c

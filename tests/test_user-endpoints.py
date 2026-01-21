@@ -1,6 +1,3 @@
-from src.main import app
-from src.database import SessionLocal
-
 def test_signup(client):
     response = client.post(
         "/signup",
@@ -10,6 +7,7 @@ def test_signup(client):
     data = response.json()
     assert "access_token" in data
     assert "token_type" in data
+
 
 def test_signup_duplicate(client):
     client.post("/signup", json={"email": "dup@example.com", "password": "password123"})

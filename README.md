@@ -20,7 +20,7 @@
 
 ### 2. Run the server:
 
-- uvicorn main:app --reload
+- uvicorn app.main:app --reload
 
 ## How to test (after install)
 

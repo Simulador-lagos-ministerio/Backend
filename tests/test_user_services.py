@@ -1,5 +1,7 @@
 import pytest
-from src.services import create_user, authenticate_user
+
+from app.users.services import authenticate_user, create_user
+
 
 def test_create_user(db_session):
     email = "user@example.com"

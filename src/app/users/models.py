@@ -1,9 +1,12 @@
-import sqlalchemy as _sql
 import passlib.hash as _hash
-from src import database as _database
+import sqlalchemy as _sql
 
+from app import database as _database
+
+
+# User persistence model.
 class User(_database.Base):
-    __tablename__="users"
+    __tablename__ = "users"
     id = _sql.Column(_sql.Integer, primary_key=True, index=True)
     email = _sql.Column(_sql.String(255), unique=True, index=True, nullable=False)
     hashed_password = _sql.Column(_sql.String(255), nullable=False)

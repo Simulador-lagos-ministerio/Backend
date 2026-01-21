@@ -1,34 +1,37 @@
 from datetime import datetime, timedelta
-from passlib.hash import bcrypt
+
 from jose import jwt
+from passlib.hash import bcrypt
+from sqlalchemy.exc import IntegrityError
 
-from src import database as _database
-from src import models as _models
+from app.users import models as _models
 
-# Simple JWT setup
+# Auth helpers and token utilities.
 SECRET_KEY = "dev-secret"
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_MINUTES = 60 * 24 * 60 #expira en 2 meses
+TOKEN_EXPIRE_MINUTES = 60 * 24 * 60  # Expires in 2 months
 
-# in-memory logout store
 revoked_tokens = set()
 
-def create_database():
-    return _database.Base.metadata.create_all(bind=_database.engine)
-
-# -------- USERS --------
 
 def get_user_by_email(db, email: str):
     return db.query(_models.User).filter(_models.User.email == email).first()
 
 
 def create_user(db, email: str, password: str):
+    if get_user_by_email(db, email):
+        raise ValueError("Email already registered")
+
     user = _models.User(
         email=email,
         hashed_password=bcrypt.hash(password),
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ValueError("Email already registered")
     db.refresh(user)
     return user
 
@@ -41,8 +44,6 @@ def authenticate_user(db, email: str, password: str):
         return None
     return user
 
-
-# -------- TOKENS --------
 
 def create_token(email: str):
     payload = {

@@ -1,5 +1,5 @@
 import pytest
-from src.models import User
+from app.users.models import User
 from passlib.hash import bcrypt
 
 

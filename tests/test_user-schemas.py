@@ -1,5 +1,5 @@
-import sys
-from src.schemas import UserCreate, UserLogin, Token
+from app.users.schemas import Token, UserCreate, UserLogin
+
 
 def test_user_create_schema():
     data = {
