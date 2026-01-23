@@ -1,7 +1,7 @@
 import passlib.hash as _hash
 import sqlalchemy as _sql
 
-from app import database as _database
+from app import sqlite_database as _database
 
 
 # User persistence model.

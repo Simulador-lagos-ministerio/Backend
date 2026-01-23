@@ -11,8 +11,8 @@ from sqlalchemy.pool import StaticPool
 src_dir = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_dir))
 
-from app import database
-from app.database import get_db
+from app import sqlite_database
+from app.sqlite_database import get_db
 from app.main import app
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -27,11 +27,11 @@ def db_engine():
     )
 
     import app.users.models
-    database.Base.metadata.create_all(bind=engine)
+    sqlite_database.Base.metadata.create_all(bind=engine)
 
     yield engine
 
-    database.Base.metadata.drop_all(bind=engine)
+    sqlite_database.Base.metadata.drop_all(bind=engine)
     engine.dispose()
 
 
