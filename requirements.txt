@@ -10,11 +10,11 @@ pytest-cov
 python-jose
 # PostGIS
 geoalchemy2==0.15.2
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 # Storage S3-compatible (MinIO)
 boto3==1.34.162
 # Raster I/O / arrays
-rasterio==1.3.10
+rasterio>=1.5.0
 numpy==2.0.1
 # Utilidades
 cachetools==5.5.0

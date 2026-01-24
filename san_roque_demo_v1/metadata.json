@@ -1,0 +1,49 @@
+{
+  "dataset_name": "san_roque_demo_v1",
+  "purpose": "Synthetic demo layers for backend testing (NOT production)",
+  "created_utc": "2026-01-24T00:17:36.891767Z",
+  "grid": {
+    "rows": 300,
+    "cols": 300,
+    "cell_size_m": 100.0,
+    "crs": "EPSG:3857",
+    "origin_corner": "top_left",
+    "origin_x": -7191767.571442347,
+    "origin_y": -3665894.488587622,
+    "center_lonlat": {
+      "lon": -64.47,
+      "lat": -31.37
+    }
+  },
+  "layers": {
+    "water": {
+      "file": "water.tif",
+      "dtype": "uint8",
+      "meaning": "0=land, 1=water",
+      "generation": "Ellipse mask near right side within synthetic domain"
+    },
+    "inhabitants": {
+      "file": "inhabitants.tif",
+      "dtype": "int32",
+      "meaning": "inhabitants per cell (base)",
+      "generation": "Two gaussian clusters + sparse rural noise; zeroed on water/outside domain"
+    },
+    "ci": {
+      "file": "ci.tif",
+      "dtype": "float32",
+      "meaning": "attenuation coefficient proxy in [0,1]",
+      "generation": "exp(-dist_to_water/5000m) using BFS 4-neighborhood distance; zeroed on water/outside domain",
+      "parameters": {
+        "k": 0.0002,
+        "attenuation_length_m": 5000
+      }
+    }
+  },
+  "validation": {
+    "water_count": 3343,
+    "inhabited_cells_count": 11829,
+    "inhabitants_total": 179403,
+    "ci_min": 0.0,
+    "ci_max": 0.9801986813545227
+  }
+}

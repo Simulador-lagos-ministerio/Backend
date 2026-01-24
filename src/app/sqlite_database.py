@@ -4,12 +4,14 @@ import sqlalchemy.orm as _orm
 from app.settings import settings
 
 
-SqliteEngine = _sql.create_engine(settings.sqlite_database_url, connect_args={"check_same_thread": False})
+SqliteEngine = _sql.create_engine(settings.sqlite_url, connect_args={"check_same_thread": False})
 SqliteSessionLocal = _orm.sessionmaker(autocommit=False, autoflush=False, bind=SqliteEngine)
 SqliteBase = _declarative.declarative_base()
 
 
 def create_sqlite_database():
+    # Import models so metadata has tables
+    from app.users import models
     # Create tables on startup.
     return SqliteBase.metadata.create_all(bind=SqliteEngine)
 

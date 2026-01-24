@@ -1,11 +1,11 @@
 import passlib.hash as _hash
 import sqlalchemy as _sql
 
-from app import sqlite_database as _database
+from app import sqlite_database 
 
 
 # User persistence model.
-class User(_database.Base):
+class User(sqlite_database.SqliteBase):
     __tablename__ = "users"
     id = _sql.Column(_sql.Integer, primary_key=True, index=True)
     email = _sql.Column(_sql.String(255), unique=True, index=True, nullable=False)

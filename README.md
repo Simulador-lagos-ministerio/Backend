@@ -2,7 +2,7 @@
 
 ## Creating a Virtual Environment
 
-- python3 -m venv venv
+- python3.13 -m venv venv
 
 ## Activating the Virtual Environment
 

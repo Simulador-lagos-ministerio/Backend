@@ -7,6 +7,8 @@ PostgisEngine = create_engine(settings.postgis_url, pool_pre_ping=True)
 PostgisSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=PostgisEngine)
 
 def create_postgis_database():
+    # Import models so metadata has tables
+    from app.lakes import models  
     # Create tables on startup.
     return PostgisBase.metadata.create_all(bind=PostgisEngine)
 
