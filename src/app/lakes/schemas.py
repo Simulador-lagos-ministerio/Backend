@@ -39,3 +39,20 @@ class BlockedMaskResponse(BaseModel):
     blocked_count: Optional[int] = None
     water_count: Optional[int] = None
     inhabited_count: Optional[int] = None
+
+class DatasetVersionSummary(BaseModel):
+    id: UUID
+    lake_id: UUID
+    version: int
+    status: Literal["DRAFT", "ACTIVE", "DEPRECATED"]
+    notes: Optional[str] = None
+
+class LayerStats(BaseModel):
+    lake_id: UUID
+    dataset_version_id: UUID
+    layer_kind: LayerKind
+    rows: int
+    cols: int
+    dtype: str
+    nodata: Optional[float] = None
+    stats: Dict[str, Any]

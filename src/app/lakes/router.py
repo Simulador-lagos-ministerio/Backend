@@ -4,8 +4,9 @@ from uuid import UUID
 
 from app.postgis_database import get_postgis_db
 from app.lakes.models import Lake, LakeDatasetVersion
-from app.lakes.schemas import LakeSummary, LakeDetail, GridSpec, BlockedMaskResponse
+from app.lakes.schemas import DatasetVersionSummary, LakeSummary, LakeDetail, GridSpec, BlockedMaskResponse, LayerStats
 from app.lakes.services import get_active_dataset_version, compute_blocked_mask
+from app.lakes.stats_services import compute_layer_stats
 
 router = APIRouter()
 
@@ -80,5 +81,26 @@ def get_blocked_mask(lake_id: UUID, db: Session = Depends(get_postgis_db)):
         dv = get_active_dataset_version(db, lake_id)
         payload = compute_blocked_mask(db, lake_id, dv.id)
         return payload
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/lakes/{lake_id}/datasets/active", response_model=DatasetVersionSummary)
+def get_active_dataset(lake_id: UUID, db: Session = Depends(get_postgis_db)):
+    dv = get_active_dataset_version(db, lake_id)
+    return DatasetVersionSummary(
+        id=dv.id,
+        lake_id=dv.lake_id,
+        version=dv.version,
+        status=dv.status,
+        notes=dv.notes,
+    )
+
+@router.get(
+    "/lakes/{lake_id}/datasets/{dataset_version_id}/layers/{layer_kind}/stats",
+    response_model=LayerStats
+)
+def layer_stats(lake_id: UUID, dataset_version_id: UUID, layer_kind: str, db: Session = Depends(get_postgis_db)):
+    try:
+        return compute_layer_stats(db, lake_id, dataset_version_id, layer_kind)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
