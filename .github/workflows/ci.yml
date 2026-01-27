@@ -31,3 +31,5 @@ jobs:
         run: |
           if [ -f Backend/requirements.txt ]; then cd Backend; fi
           python -m pytest -v
+env:
+  SKIP_DB_INIT: "1"
