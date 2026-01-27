@@ -17,7 +17,7 @@ class TestUserModel:
         db_session.refresh(user)
 
         assert user.id is not None
-        assert user.email == "test@example.com"
+        assert bool(user.email == "test@example.com")
         assert user.hashed_password is not None
 
     def test_user_email_unique(self, db_session):

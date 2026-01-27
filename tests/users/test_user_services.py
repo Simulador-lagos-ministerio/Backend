@@ -10,8 +10,8 @@ def test_create_user(db_session):
     user = create_user(db_session, email, password)
 
     assert user.id is not None
-    assert user.email == email
-    assert user.hashed_password != password
+    assert bool(user.email == email)
+    assert bool(user.hashed_password != password)
 
 
 def test_create_user_duplicate_email(db_session):
