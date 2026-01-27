@@ -1,5 +1,4 @@
-# tests/lakes/test_services_layer_stats.py
-
+"""Unit tests for compute_layer_stats."""
 from __future__ import annotations
 
 from uuid import uuid4
@@ -9,11 +8,11 @@ import pytest
 import rasterio
 from rasterio.transform import from_origin
 
-from app.lakes.services import compute_layer_stats
 from app.lakes.models import LakeLayer
+from app.lakes.services import compute_layer_stats
 
 
-# Ajustá estos 3 strings si tu repository usa otros códigos exactos
+# Adjust these if your repository uses different error codes.
 EXPECTED_LAKE_NOT_FOUND = "LAKE_NOT_FOUND"
 EXPECTED_DATASET_NOT_FOUND = "DATASET_NOT_FOUND"
 EXPECTED_LAYER_NOT_FOUND = "LAYER_NOT_FOUND"
@@ -198,12 +197,12 @@ def test_compute_layer_stats_ci_ok(postgis_session, seeded_lake, patch_s3_downlo
 
 def test_compute_layer_stats_dimension_mismatch_raises(postgis_session, seeded_lake, monkeypatch, tmp_path, clear_lakes_caches):
     """
-    Genera un raster 10x10 pero el lake es 20x20 => DIMENSION_MISMATCH
+    Build a 10x10 raster while the lake grid is 20x20 => DIMENSION_MISMATCH.
     """
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]
 
-    # Crear raster mismatch 10x10
+    # Build a 10x10 mismatch raster.
     out = tmp_path / "ci_mismatch.tif"
     arr = np.ones((10, 10), dtype=np.float32)
     transform = from_origin(0, 0, 1, 1)
@@ -222,7 +221,7 @@ def test_compute_layer_stats_dimension_mismatch_raises(postgis_session, seeded_l
     ) as dst:
         dst.write(arr, 1)
 
-    # Apuntar CI a este URI
+    # Point the CI layer to this URI.
     ci_layer = (
         postgis_session.query(LakeLayer)
         .filter(LakeLayer.dataset_version_id == dv_id)
@@ -237,7 +236,7 @@ def test_compute_layer_stats_dimension_mismatch_raises(postgis_session, seeded_l
             return str(out)
         raise FileNotFoundError(uri)
 
-    monkeypatch.setattr("app.lakes.services.download_to_tempfile", fake_download)
+    monkeypatch.setattr("app.lakes.repository.download_to_tempfile", fake_download)
 
     with pytest.raises(ValueError) as e:
         compute_layer_stats(postgis_session, lake_id, dv_id, "ci")
@@ -246,14 +245,14 @@ def test_compute_layer_stats_dimension_mismatch_raises(postgis_session, seeded_l
 
 def test_compute_layer_stats_all_nodata_returns_count_0(postgis_session, seeded_lake, monkeypatch, tmp_path, clear_lakes_caches):
     """
-    Raster 20x20 todo nodata => stats={"count":0}
+    20x20 raster full of nodata => stats={"count": 0}.
     """
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]
 
     out = tmp_path / "ci_all_nodata.tif"
     nodata = 0.0
-    arr = np.zeros((20, 20), dtype=np.float32)  # todo nodata
+    arr = np.zeros((20, 20), dtype=np.float32)  # all nodata
     transform = from_origin(0, 0, 1, 1)
 
     with rasterio.open(
@@ -285,7 +284,7 @@ def test_compute_layer_stats_all_nodata_returns_count_0(postgis_session, seeded_
             return str(out)
         raise FileNotFoundError(uri)
 
-    monkeypatch.setattr("app.lakes.services.download_to_tempfile", fake_download)
+    monkeypatch.setattr("app.lakes.repository.download_to_tempfile", fake_download)
 
     payload = compute_layer_stats(postgis_session, lake_id, dv_id, "ci")
     assert payload["stats"] == {"count": 0}
@@ -293,7 +292,7 @@ def test_compute_layer_stats_all_nodata_returns_count_0(postgis_session, seeded_
 
 def test_compute_layer_stats_nodata_none_includes_all_cells(postgis_session, seeded_lake, monkeypatch, tmp_path, clear_lakes_caches):
     """
-    nodata=None => data = arr.reshape(-1), count = rows*cols
+    nodata=None => data = arr.reshape(-1), count = rows * cols.
     """
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]
@@ -331,7 +330,7 @@ def test_compute_layer_stats_nodata_none_includes_all_cells(postgis_session, see
             return str(out)
         raise FileNotFoundError(uri)
 
-    monkeypatch.setattr("app.lakes.services.download_to_tempfile", fake_download)
+    monkeypatch.setattr("app.lakes.repository.download_to_tempfile", fake_download)
 
     payload = compute_layer_stats(postgis_session, lake_id, dv_id, "ci")
     assert payload["stats"]["count"] == 400
@@ -351,13 +350,13 @@ def test_compute_layer_stats_cache_hit_does_not_redownload(postgis_session, seed
         fname = uri.split("/")[-1]
         return str(rasters_dir / fname)
 
-    monkeypatch.setattr("app.lakes.services.download_to_tempfile", counting_download)
+    monkeypatch.setattr("app.lakes.repository.download_to_tempfile", counting_download)
 
     p1 = compute_layer_stats(postgis_session, lake_id, dv_id, "water")
     p2 = compute_layer_stats(postgis_session, lake_id, dv_id, "water")
 
-    assert p2 is p1  # mismo dict desde cache
-    assert calls["n"] == 1  # no volvió a descargar
+    assert p2 is p1  # same dict instance from cache
+    assert calls["n"] == 1  # should not re-download
 
 
 def test_compute_layer_stats_lake_not_found(postgis_session, seeded_lake, patch_s3_download, clear_lakes_caches):
@@ -376,8 +375,8 @@ def test_compute_layer_stats_dataset_not_found(postgis_session, seeded_lake, pat
 
 def test_compute_layer_stats_layer_not_found(postgis_session, seeded_lake, patch_s3_download, clear_lakes_caches):
     """
-    Si tu get_layer valida y rechaza kind desconocido, esto debe explotar.
-    Si en tu repo el error es otro, ajustá EXPECTED_LAYER_NOT_FOUND.
+    If get_layer validates and rejects unknown kinds, this should raise.
+    If your repo uses another error, update EXPECTED_LAYER_NOT_FOUND.
     """
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]

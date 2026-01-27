@@ -1,6 +1,7 @@
+"""Unit tests for GeoJSON parsing."""
 import pytest
 
-from app.lakes.geometry_services import parse_geojson_geometry, GeometryError
+from app.lakes.geometry_services import GeometryError, parse_geojson_geometry
 
 
 def test_parse_geojson_polygon_ok():
@@ -60,7 +61,7 @@ def test_parse_geojson_unsupported_type_rejected():
 
 
 def test_parse_geojson_empty_geometry_rejected():
-    # Empty GeometryCollection
+    # Empty GeometryCollection.
     geojson = {"type": "GeometryCollection", "geometries": []}
     with pytest.raises(GeometryError) as e:
         parse_geojson_geometry(geojson)
@@ -68,7 +69,7 @@ def test_parse_geojson_empty_geometry_rejected():
 
 
 def test_parse_geojson_invalid_self_intersection_rejected():
-    # "bow-tie" polygon (self-intersecting)
+    # "Bow-tie" polygon (self-intersecting).
     geojson = {
         "type": "Polygon",
         "coordinates": [[

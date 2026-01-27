@@ -1,6 +1,8 @@
-import pytest
+"""Repository unit tests for lakes data access helpers."""
 from typing import cast
 from uuid import UUID, uuid4
+
+import pytest
 
 from app.lakes.repository import (
     get_lake,
@@ -32,8 +34,12 @@ def test_get_active_dataset_version_ok(postgis_session, seeded_lake):
 
 
 def test_get_active_dataset_version_no_active(postgis_session, seeded_lake):
-    # Cambiamos ACTIVE -> DEPRECATED
-    dv = postgis_session.query(LakeDatasetVersion).filter(LakeDatasetVersion.id == seeded_lake["dataset_version_id"]).one()
+    # Flip ACTIVE -> DEPRECATED to force a "not found" for ACTIVE.
+    dv = (
+        postgis_session.query(LakeDatasetVersion)
+        .filter(LakeDatasetVersion.id == seeded_lake["dataset_version_id"])
+        .one()
+    )
     dv.status = "DEPRECATED"
     postgis_session.commit()
 
@@ -55,7 +61,7 @@ def test_resolve_dataset_version_specific_ok(postgis_session, seeded_lake):
 
 
 def test_resolve_dataset_version_wrong_lake(postgis_session, seeded_lake):
-    # Creamos otro lake y movemos el dataset version para ese lake
+    # Create a second lake and dataset version that should not resolve.
     other_lake_id = uuid4()
     other = Lake(
         id=other_lake_id,
@@ -72,12 +78,12 @@ def test_resolve_dataset_version_wrong_lake(postgis_session, seeded_lake):
     postgis_session.add(other)
     postgis_session.commit()
 
-    # Creamos un DV distinto para other lake
+    # Create a dataset version for the other lake.
     other_dv = LakeDatasetVersion(lake_id=other_lake_id, version=1, status="ACTIVE", notes="other")
     postgis_session.add(other_dv)
     postgis_session.commit()
 
-    # Intentamos resolver other_dv usando seeded_lake lake_id -> debe fallar
+    # Resolving other_dv using the seeded lake must fail.
     with pytest.raises(ValueError) as e:
         resolve_dataset_version(postgis_session, seeded_lake["lake_id"], cast(UUID, other_dv.id))
     assert str(e.value) == "DATASET_NOT_FOUND"
@@ -93,8 +99,15 @@ def test_resolve_dataset_version_not_found(postgis_session, seeded_lake):
 def test_get_layer_ok(postgis_session, seeded_lake, kind):
     layer = get_layer(postgis_session, seeded_lake["dataset_version_id"], kind)
     assert cast(UUID, layer.dataset_version_id) == seeded_lake["dataset_version_id"]
-    assert layer.storage_uri.endswith(f"{'inh_ok.tif' if kind=='inhabitants' else kind + '_ok.tif'}".replace("water_ok_ok", "water_ok")) is False or True
-    # Mejor check por kind_db:
+    # No-op assert to keep a placeholder for future storage_uri checks.
+    assert (
+        layer.storage_uri.endswith(
+            f"{'inh_ok.tif' if kind == 'inhabitants' else kind + '_ok.tif'}".replace("water_ok_ok", "water_ok")
+        )
+        is False
+        or True
+    )
+    # Validate against the DB enum kind.
     layer_kind = cast(str, layer.layer_kind)
     if kind == "water":
         assert layer_kind == "WATER"
@@ -111,7 +124,7 @@ def test_get_layer_invalid_kind(postgis_session, seeded_lake):
 
 
 def test_get_layer_missing_layer(postgis_session, seeded_lake):
-    # Borramos un layer (CI)
+    # Delete one layer (CI).
     postgis_session.query(LakeLayer).filter(
         LakeLayer.dataset_version_id == seeded_lake["dataset_version_id"],
         LakeLayer.layer_kind == "CI",

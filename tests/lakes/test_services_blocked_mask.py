@@ -1,4 +1,4 @@
-# tests/lakes/test_services_blocked_mask.py
+"""Unit tests for compute_blocked_mask."""
 import base64
 import zlib
 from pathlib import Path
@@ -36,7 +36,7 @@ def test_compute_blocked_mask_ok(postgis_session, seeded_lake):
     assert rows == 20
     assert cols == 20
 
-    # --- expected counts desde rasters locales ---
+    # Expected counts from local test rasters.
     water_path = _local_raster_path(rasters_dir, seeded_lake["uris"]["water"])
     inh_path = _local_raster_path(rasters_dir, seeded_lake["uris"]["inh"])
 
@@ -53,10 +53,10 @@ def test_compute_blocked_mask_ok(postgis_session, seeded_lake):
     assert payload["inhabited_count"] == int(inh_bool.sum())
     assert payload["blocked_count"] == int(blocked.sum())
 
-    # --- validar bitset decodificado contra máscara blocked ---
+    # Validate decoded bitset against the blocked mask.
     raw = _decode_zlib_base64(payload["blocked_bitset_base64"])
 
-    # bytes esperados = ceil((rows*cols)/8)
+    # Expected byte length = ceil((rows * cols) / 8).
     expected_len = (rows * cols + 7) // 8
     assert len(raw) == expected_len
 
@@ -80,7 +80,7 @@ def test_compute_blocked_mask_dimension_mismatch(postgis_session, seeded_lake):
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]
 
-    # Apuntamos WATER a un tif mismatch (debe existir en tests/fixtures/rasters)
+    # Point WATER to a mismatch tif (exists under tests/fixtures/rasters).
     water_layer = (
         postgis_session.query(LakeLayer)
         .filter(LakeLayer.dataset_version_id == dv_id)

@@ -1,9 +1,10 @@
+"""Unit tests for grid transforms and rasterization."""
 import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
-from app.lakes.schemas import GridSpec
 from app.lakes.geometry_services import grid_transform, rasterize_geometry_to_mask
+from app.lakes.schemas import GridSpec
 
 
 def test_grid_transform_top_left_ok():
@@ -26,11 +27,11 @@ def test_grid_transform_rejects_non_top_left():
         cols=10,
         cell_size_m=1.0,
         crs="EPSG:3857",
-        origin_corner="top_left",  # cambiamos luego
+        origin_corner="top_left",  # replaced below
         origin_x=0.0,
         origin_y=10.0,
     )
-    # Forzamos un valor inválido (pydantic literal suele impedirlo, así que usamos model_copy)
+    # Force an invalid value (Pydantic Literal prevents it, so use model_copy).
     grid2 = grid.model_copy(update={"origin_corner": "bottom_left"})  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         grid_transform(grid2)
@@ -59,12 +60,12 @@ def test_rasterize_aligned_block_expected_cells():
     Grid: origin (0,10), cell=1, rows/cols=10.
     Polygon covers x:[2,4] y:[6,8] in projected coordinates.
 
-    En un grid top-left:
-    - columnas: x 0..10
-    - filas: y 10..0
+    In a top-left grid:
+    - columns: x 0..10
+    - rows: y 10..0
 
-    Esperamos seleccionar exactamente 2x2 celdas:
-    cols 2-3 y rows correspondientes a y 8..6.
+    We expect exactly a 2x2 selection:
+    cols 2-3 and rows corresponding to y 8..6.
     """
     grid = GridSpec(
         rows=10,
@@ -88,9 +89,9 @@ def test_rasterize_aligned_block_expected_cells():
 
     assert int(mask.sum()) == 4
 
-    # Validamos que el bloque esperado esté en True
-    # y=8..6 corresponde a filas: row = (origin_y - y)/cell
-    # y in [6,8] -> rows 2..4, pero como bordes, el bloque interior son rows 2,3 y cols 2,3
+    # Validate the expected block is True.
+    # y=8..6 maps to rows: row = (origin_y - y) / cell
+    # y in [6,8] -> rows 2..4, but edges reduce to rows 2,3 and cols 2,3.
     expected = np.zeros((10, 10), dtype=bool)
     expected[2:4, 2:4] = True
 
@@ -108,7 +109,7 @@ def test_all_touched_selects_more_or_equal_cells_on_border_touch():
         origin_y=10.0,
     )
 
-    # Polígono muy fino que pasa cerca de bordes (diagonal)
+    # Thin polygon that grazes cell borders (diagonal).
     geom = Polygon([
         (0.1, 9.9),
         (0.1, 9.1),

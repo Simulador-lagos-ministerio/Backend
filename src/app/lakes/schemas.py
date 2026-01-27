@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import Literal, Optional, Dict, List, Any
+"""Pydantic schemas for lakes API contracts."""
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 OriginCorner = Literal["top_left"]
 LayerKind = Literal["water", "inhabitants", "ci"]
@@ -67,11 +69,11 @@ class GridManifest(BaseModel):
 
 
 class GeometryInput(BaseModel):
-    # Leaflet-Geoman will send GeoJSON geometry (Polygon/MultiPolygon)
+    # Leaflet-Geoman sends GeoJSON geometry (Polygon/MultiPolygon).
     dataset_version_id: Optional[UUID] = None  # if None -> ACTIVE version
     geometry: Dict[str, Any]
     geometry_crs: str = "EPSG:4326"
-    all_touched: bool = False  # rasterize option
+    all_touched: bool = False  # Rasterize option to include touched cells.
 
 
 GeometryErrorCode = Literal[
@@ -108,7 +110,7 @@ class GeometryValidationResponse(BaseModel):
     bit_order: Literal["lsb0"] = "lsb0"
     cell_order: Literal["row_major_cell_id"] = "row_major_cell_id"
 
-    # Useful for preview / persistence
+    # Useful for preview / persistence.
     selection_bitset_base64: Optional[str] = None
 
     errors: List[GeometryErrorItem] = Field(default_factory=list)

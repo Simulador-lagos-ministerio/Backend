@@ -1,7 +1,9 @@
-import numpy as np
-import pytest
+"""Unit tests for geometry validation in services."""
 from types import SimpleNamespace
 from uuid import uuid4
+
+import numpy as np
+import pytest
 
 import app.lakes.services as svc
 

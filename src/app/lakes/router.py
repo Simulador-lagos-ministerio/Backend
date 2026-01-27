@@ -1,8 +1,9 @@
+"""API routes for lakes and geometry endpoints."""
 from typing import NoReturn, cast
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from uuid import UUID
 
 from app.postgis_database import get_postgis_db
 from app.lakes.models import Lake, LakeDatasetVersion
@@ -24,19 +25,21 @@ from app.lakes.schemas import (
 from app.lakes.services import (
     compute_blocked_mask,
     compute_layer_stats,
-    validate_and_rasterize_geometry,
     selection_mask_to_bitset_b64,
+    validate_and_rasterize_geometry,
 )
 
 from app.lakes.repository import (
     get_lake as repo_get_lake,
     get_active_dataset_version,
+    list_lakes as repo_list_lakes,
 )
 
 from app.lakes.geometry_services import bbox_in_lake_crs, bbox_to_wgs84
 
 router = APIRouter()
 
+# Supported API layer kinds.
 _ALLOWED_LAYER_KINDS = {"water", "inhabitants", "ci"}
 
 # Service sometimes returns codes that are not part of GeometryErrorItem Literal
@@ -46,48 +49,38 @@ _GEOMETRY_ERROR_CODE_MAP = {
 
 
 def _raise_mapped_error(code: str) -> NoReturn:
-    # 404: missing resources (tests expect human messages)
-    if code == "LAKE_NOT_FOUND":
-        raise HTTPException(status_code=404, detail="Lake not found")
-    if code == "DATASET_NOT_FOUND":
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    if code == "LAYER_NOT_FOUND":
-        raise HTTPException(status_code=404, detail="Layer not found")
+    """Map domain error codes to HTTP errors with stable response contracts."""
+    if code in {"LAKE_NOT_FOUND", "DATASET_NOT_FOUND", "NO_LAKES_FOUND"}:
+        raise HTTPException(status_code=404, detail=code)
 
-    # 400: client errors (keep as code strings unless a test requires dict)
     if code in {
-        "INVALID_GEOJSON",
-        "INVALID_GEOMETRY",
-        "EMPTY_SELECTION",
-        "INVALID_SELECTION",
-        "INVALID_LAYER_KIND",
+        "INVALID_GEOJSON", "INVALID_GEOMETRY", "UNSUPPORTED_GEOMETRY",
+        "EMPTY_SELECTION", "INVALID_SELECTION", "INVALID_LAYER_KIND"
     }:
         raise HTTPException(status_code=400, detail=code)
 
-    # 500: server/misconfig
-    if code in {"DIMENSION_MISMATCH"}:
+    if code in {"LAYER_NOT_FOUND", "DIMENSION_MISMATCH", "UNSUPPORTED_ORIGIN_CORNER", "SOME_LAKES_UNSUPPORTED_ORIGIN_CORNER"}:
         raise HTTPException(status_code=500, detail=code)
 
-    # fallback
     raise HTTPException(status_code=400, detail=code)
 
 
-# ---------------------------
-# Existing endpoints
-# ---------------------------
 
 @router.get("/lakes", response_model=list[LakeSummary])
 def list_lakes(db: Session = Depends(get_postgis_db)):
-    lakes = db.query(Lake).all()
+    """List lakes with grid metadata and current ACTIVE dataset id, if any."""
+    try:
+        lakes = repo_list_lakes(db)
+    except ValueError as e:
+        _raise_mapped_error(str(e))
     out: list[LakeSummary] = []
 
     for lake in lakes:
-        active = (
-            db.query(LakeDatasetVersion)
-            .filter(LakeDatasetVersion.lake_id == lake.id)
-            .filter(LakeDatasetVersion.status == "ACTIVE")
-            .first()
-        )
+        
+        try:
+            active = get_active_dataset_version(db, cast(UUID, lake.id))
+        except ValueError:
+            active = None
 
         out.append(
             LakeSummary(
@@ -99,7 +92,7 @@ def list_lakes(db: Session = Depends(get_postgis_db)):
                     cols=cast(int, lake.grid_cols),
                     cell_size_m=cast(float, lake.cell_size_m),
                     crs=cast(str, lake.crs),
-                    origin_corner=lake.origin_corner,
+                    origin_corner=cast(str, lake.origin_corner),
                     origin_x=cast(float, lake.origin_x),
                     origin_y=cast(float, lake.origin_y),
                 ),
@@ -110,18 +103,16 @@ def list_lakes(db: Session = Depends(get_postgis_db)):
 
 @router.get("/lakes/{lake_id}", response_model=LakeDetail)
 def get_lake(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    lake = db.query(Lake).filter(Lake.id == lake_id).first()
-    if not lake:
-        raise HTTPException(status_code=404, detail="Lake not found")
+    """Get a lake summary by id."""
+    try:
+        lake = repo_get_lake(db, lake_id)
+    except ValueError as e:
+        _raise_mapped_error(str(e))
 
-    active = (
-        db.query(LakeDatasetVersion)
-        .filter(LakeDatasetVersion.lake_id == lake.id)
-        .filter(LakeDatasetVersion.status == "ACTIVE")
-        .first()
-    )
-
-    extent_bbox = None
+    try:
+        active = get_active_dataset_version(db, cast(UUID, lake.id))
+    except ValueError:
+        active = None
 
     return LakeDetail(
         id=cast(UUID, lake.id),
@@ -132,20 +123,21 @@ def get_lake(lake_id: UUID, db: Session = Depends(get_postgis_db)):
             cols=cast(int, lake.grid_cols),
             cell_size_m=cast(float, lake.cell_size_m),
             crs=cast(str, lake.crs),
-            origin_corner=lake.origin_corner,
+            origin_corner=cast(str, lake.origin_corner),
             origin_x=cast(float, lake.origin_x),
             origin_y=cast(float, lake.origin_y),
         ),
-        extent_bbox=extent_bbox,
+        extent_bbox=None,
     )
 
 
 @router.get("/lakes/{lake_id}/blocked-mask", response_model=BlockedMaskResponse)
 def get_blocked_mask(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    # Tests expect "Lake not found" when lake_id doesn't exist, even if repo returns DATASET_NOT_FOUND
-    lake = db.query(Lake).filter(Lake.id == lake_id).first()
-    if not lake:
-        raise HTTPException(status_code=404, detail="Lake not found")
+    """Return the precomputed blocked mask for ACTIVE dataset."""
+    try:
+        lake = repo_get_lake(db, lake_id)
+    except ValueError as e:
+        _raise_mapped_error(str(e))
 
     try:
         dv = get_active_dataset_version(db, lake_id)
@@ -156,18 +148,18 @@ def get_blocked_mask(lake_id: UUID, db: Session = Depends(get_postgis_db)):
 
 @router.get("/lakes/{lake_id}/datasets/active", response_model=DatasetVersionSummary)
 def get_active_dataset(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    # Same contract as tests: distinguish lake-not-found vs dataset-not-found
-    lake = db.query(Lake).filter(Lake.id == lake_id).first()
-    if not lake:
-        raise HTTPException(status_code=404, detail="Lake not found")
-
+    """Return ACTIVE dataset metadata for a given lake."""
+    try:
+        lake = repo_get_lake(db, lake_id)
+    except ValueError as e:
+        _raise_mapped_error(str(e))
     try:
         dv = get_active_dataset_version(db, lake_id)
         return DatasetVersionSummary(
             id=cast(UUID, dv.id),
             lake_id=cast(UUID, dv.lake_id),
             version=cast(int, dv.version),
-            status=dv.status,
+            status=cast(str, dv.status),
             notes=cast(str, dv.notes),
         )
     except ValueError as e:
@@ -179,9 +171,9 @@ def get_active_dataset(lake_id: UUID, db: Session = Depends(get_postgis_db)):
     response_model=LayerStats,
 )
 def layer_stats(lake_id: UUID, dataset_version_id: UUID, layer_kind: str, db: Session = Depends(get_postgis_db)):
-    # Tests expect 404 (not 400) when layer_kind is not supported
+    """Return computed stats for a given layer."""
     if layer_kind not in _ALLOWED_LAYER_KINDS:
-        raise HTTPException(status_code=404, detail="Layer not found")
+        _raise_mapped_error("INVALID_LAYER_KIND")
 
     try:
         return compute_layer_stats(db, lake_id, dataset_version_id, layer_kind)
@@ -189,12 +181,9 @@ def layer_stats(lake_id: UUID, dataset_version_id: UUID, layer_kind: str, db: Se
         _raise_mapped_error(str(e))
 
 
-# ---------------------------
-# New endpoints (Leaflet-Geoman contracts)
-# ---------------------------
-
 @router.get("/lakes/{lake_id}/grid", response_model=GridManifest)
 def get_lake_grid_manifest(lake_id: UUID, db: Session = Depends(get_postgis_db)):
+    """Return grid spec and bbox info for frontend mapping clients."""
     try:
         lake = repo_get_lake(db, lake_id)
     except ValueError as e:
@@ -205,7 +194,7 @@ def get_lake_grid_manifest(lake_id: UUID, db: Session = Depends(get_postgis_db))
         cols=cast(int, lake.grid_cols),
         cell_size_m=cast(float, lake.cell_size_m),
         crs=cast(str, lake.crs),
-        origin_corner=lake.origin_corner,
+        origin_corner=cast(str, lake.origin_corner),
         origin_x=cast(float, lake.origin_x),
         origin_y=cast(float, lake.origin_y),
     )
@@ -223,6 +212,7 @@ def get_lake_grid_manifest(lake_id: UUID, db: Session = Depends(get_postgis_db))
 
 @router.post("/lakes/{lake_id}/validate-geometry", response_model=GeometryValidationResponse)
 def validate_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depends(get_postgis_db)):
+    """Validate a geometry and return mask metadata without raising 404."""
     result = validate_and_rasterize_geometry(
         db=db,
         lake_id=lake_id,
@@ -232,7 +222,6 @@ def validate_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depen
         all_touched=payload.all_touched,
     )
 
-    # IMPORTANT: validate-geometry should NOT raise 404; tests expect 200 with minimal payload
     if "code" in result:
         raw_code = result["code"]
         code_norm = _GEOMETRY_ERROR_CODE_MAP.get(raw_code, raw_code)
@@ -240,7 +229,7 @@ def validate_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depen
         lake = result.get("lake")
         dv_id = result.get("dataset_version_id") or payload.dataset_version_id
 
-        # Minimal response when lake is missing (or service couldn't load it)
+        # Minimal response when the lake cannot be loaded.
         if lake is None:
             return GeometryValidationResponse(
                 ok=False,
@@ -308,6 +297,7 @@ def validate_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depen
 
 @router.post("/lakes/{lake_id}/rasterize-geometry", response_model=RasterizeResponse)
 def rasterize_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depends(get_postgis_db)):
+    """Validate and rasterize geometry; fail fast on invalid payloads."""
     result = validate_and_rasterize_geometry(
         db=db,
         lake_id=lake_id,
@@ -317,21 +307,18 @@ def rasterize_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depe
         all_touched=payload.all_touched,
     )
 
-    # On rasterize we fail hard if invalid:
-    # tests expect 400 with {"code": ..., "message": ...} for geometry errors
+    # For rasterize we fail hard if invalid
     if "code" in result:
-        code = result["code"]
-        msg = result.get("message", "")
-
-        if code == "LAKE_NOT_FOUND":
-            raise HTTPException(status_code=404, detail="Lake not found")
-        if code == "DATASET_NOT_FOUND":
-            raise HTTPException(status_code=404, detail="Dataset not found")
-
+        raw_code = result["code"]
+        code = _GEOMETRY_ERROR_CODE_MAP.get(raw_code, raw_code)
+        msg = result.get("message", code)
         raise HTTPException(status_code=400, detail={"code": code, "message": msg})
 
     if not result["ok"]:
-        raise HTTPException(status_code=400, detail={"code": "INVALID_SELECTION", "message": "Invalid selection"})
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_SELECTION", "message": "Invalid selection"},
+        )
 
     lake = result["lake"]
     dv_id = result["dataset_version_id"]

@@ -1,24 +1,23 @@
+"""Geometry utilities: parsing, reprojection, rasterization, and bitset encoding."""
 from __future__ import annotations
 
 import base64
 import zlib
-import numpy as np
-
 from typing import Any, Dict, Tuple
 
+import numpy as np
+from pyproj import CRS, Transformer
+from rasterio.features import rasterize
+from rasterio.transform import from_origin
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform as shp_transform
-
-from rasterio.features import rasterize
-from rasterio.transform import from_origin
-
-from pyproj import CRS, Transformer
 
 from app.lakes.models import Lake
 from app.lakes.schemas import GridSpec
 
 
+# Public encoding contract for selection masks.
 ENCODING = "bitset+zlib+base64"
 BIT_ORDER = "lsb0"
 CELL_ORDER = "row_major_cell_id"
@@ -44,11 +43,13 @@ def bitset_bytes_to_mask(bitset: bytes, rows: int, cols: int) -> np.ndarray:
 
 
 def encode_bitset_zlib_base64(bitset_bytes: bytes, level: int = 6) -> str:
+    """Compress raw bitset bytes and encode as base64 ASCII."""
     compressed = zlib.compress(bitset_bytes, level=level)
     return base64.b64encode(compressed).decode("ascii")
 
 
 def decode_bitset_zlib_base64(b64: str) -> bytes:
+    """Decode a base64 zlib-compressed bitset."""
     compressed = base64.b64decode(b64.encode("ascii"))
     return zlib.decompress(compressed)
 
@@ -95,6 +96,7 @@ def bbox_in_lake_crs(lake: Lake) -> Tuple[float, float, float, float]:
 
 
 def bbox_to_wgs84(bbox: Tuple[float, float, float, float], src_crs: str) -> Tuple[float, float, float, float]:
+    """Transform a bbox tuple from the lake CRS into WGS84 (EPSG:4326)."""
     minx, miny, maxx, maxy = bbox
     transformer = Transformer.from_crs(CRS.from_user_input(src_crs), CRS.from_epsg(4326), always_xy=True)
     lon1, lat1 = transformer.transform(minx, miny)
@@ -102,6 +104,7 @@ def bbox_to_wgs84(bbox: Tuple[float, float, float, float], src_crs: str) -> Tupl
     return (min(lon1, lon2), min(lat1, lat2), max(lon1, lon2), max(lat1, lat2))
 
 def grid_transform(grid: GridSpec):
+    """Build rasterio transform for a grid spec (top-left origin only)."""
     if grid.origin_corner != "top_left":
         raise ValueError("Only origin_corner='top_left' is supported for rasterization.")
     return from_origin(grid.origin_x, grid.origin_y, grid.cell_size_m, grid.cell_size_m)

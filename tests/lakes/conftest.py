@@ -1,24 +1,106 @@
-# tests/lakes/conftest.py
+"""Shared fixtures for lakes tests (PostGIS + FastAPI client)."""
 import os
-import pytest
-from uuid import uuid4
 from pathlib import Path
+from uuid import uuid4
+
+import pytest
+import numpy as np
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from fastapi.testclient import TestClient
 from testcontainers.postgres import PostgresContainer
+import rasterio
+from rasterio.transform import from_origin
 
-import app.sqlite_database as sqlite_database
-from app.sqlite_database import get_sqlite_db
-from app.main import app
 import app.lakes.services as services
+import app.sqlite_database as sqlite_database
+from app.main import app
+from app.sqlite_database import get_sqlite_db
 
-TESTS_DIR = Path(__file__).resolve().parents[1]     
-RASTERS_DIR = TESTS_DIR / "fixtures" / "rasters"  
+TESTS_DIR = Path(__file__).resolve().parents[1]   # -> tests/
+RASTERS_DIR = TESTS_DIR / "fixtures" / "rasters"  # -> tests/fixtures/rasters
+
+#-----------------------------
+# Helpers to create test rasters
+#-----------------------------
+
+def _write_tif(
+    path: Path,
+    arr: np.ndarray,
+    *,
+    crs: str = "EPSG:3857",
+    transform=None,
+    nodata=None,
+):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if transform is None:
+        # Simple transform; actual georeferencing isn't critical for these tests.
+        transform = from_origin(0.0, 0.0, 1.0, 1.0)
+
+    profile = {
+        "driver": "GTiff",
+        "height": int(arr.shape[0]),
+        "width": int(arr.shape[1]),
+        "count": 1,
+        "dtype": arr.dtype,
+        "crs": crs,
+        "transform": transform,
+    }
+    # Only set nodata in the file if explicitly provided
+    if nodata is not None:
+        profile["nodata"] = nodata
+
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(arr, 1)
+
+
+def _ensure_test_rasters_exist(rows: int = 20, cols: int = 20):
+    # 1) water_ok.tif (uint8, nodata = 0)
+    p = RASTERS_DIR / "water_ok.tif"
+    if not p.exists():
+        arr = np.zeros((rows, cols), dtype=np.uint8)
+        # water pixels: diagonal ones
+        np.fill_diagonal(arr, 1)
+        _write_tif(p, arr, nodata=0)
+
+    # 2) inh_ok.tif (float32 or int? your pipeline treats >0 as inhabited)
+    # We'll do float32 with nodata = -9999.0
+    p = RASTERS_DIR / "inh_ok.tif"
+    if not p.exists():
+        nodata = -9999.0
+        arr = np.full((rows, cols), nodata, dtype=np.float32)
+        # inhabitants in a 5x5 block
+        arr[0:5, 0:5] = 10.0
+        _write_tif(p, arr, nodata=nodata)
+
+    # 3) ci_ok.tif (float32, nodata = -9999.0)
+    p = RASTERS_DIR / "ci_ok.tif"
+    if not p.exists():
+        nodata = -9999.0
+        arr = np.arange(rows * cols, dtype=np.float32).reshape(rows, cols)
+        # Put some nodata holes
+        arr[0, 0] = nodata
+        arr[1, 1] = nodata
+        _write_tif(p, arr, nodata=nodata)
+
+    # 4) ci_all_nodata.tif (float32, everything nodata)
+    p = RASTERS_DIR / "ci_all_nodata.tif"
+    if not p.exists():
+        nodata = -9999.0
+        arr = np.full((rows, cols), nodata, dtype=np.float32)
+        _write_tif(p, arr, nodata=nodata)
+
+    # 5) ci_no_nodata.tif (float32, NO nodata metadata)
+    p = RASTERS_DIR / "ci_no_nodata.tif"
+    if not p.exists():
+        arr = np.arange(rows * cols, dtype=np.float32).reshape(rows, cols)
+        _write_tif(p, arr, nodata=None)
+
+
 
 # -----------------------------
-# SQLite (for endpoints that also touch users deps)
+# SQLite (users dependencies in auth endpoints)
 # -----------------------------
 
 @pytest.fixture(scope="function")
@@ -29,7 +111,7 @@ def sqlite_engine():
         poolclass=StaticPool,
     )
 
-    import app.users.models
+    import app.users.models  # noqa: F401
     sqlite_database.SqliteBase.metadata.create_all(bind=engine)
 
     yield engine
@@ -60,7 +142,7 @@ def postgis_engine(postgis_container):
 
 @pytest.fixture(scope="function")
 def postgis_session(postgis_engine):
-    # Ensure models loaded
+    # Ensure models are loaded before creating tables.
     import app.lakes.models  # noqa: F401
     from app.postgis_database import PostgisBase
 
@@ -117,7 +199,7 @@ def client_postgis(sqlite_engine, postgis_engine):
 def seeded_lake(postgis_session):
     from app.lakes.models import Lake, LakeDatasetVersion, LakeLayer
 
-    base = Path(__file__).resolve().parent.parent / "fixtures" / "rasters"
+    base = RASTERS_DIR
 
     lake_id = uuid4()
     lake = Lake(
@@ -182,7 +264,7 @@ def seeded_lake(postgis_session):
     return {
         "lake_id": lake_id,
         "dataset_version_id": dv.id,
-        "rasters_dir": base,
+        "rasters_dir": RASTERS_DIR,
         "uris": {
             "water": "s3://test/water_ok.tif",
             "inh": "s3://test/inh_ok.tif",
@@ -197,9 +279,7 @@ def seeded_lake(postgis_session):
 
 @pytest.fixture(scope="function")
 def patch_s3_download(monkeypatch):
-    from pathlib import Path
-
-    rasters_dir = Path(__file__).resolve().parents[1] / "fixtures" / "rasters"
+    rasters_dir = RASTERS_DIR
 
     def fake_download_to_tempfile(uri: str) -> str:
         fname = uri.split("/")[-1]
@@ -208,9 +288,8 @@ def patch_s3_download(monkeypatch):
             raise FileNotFoundError(f"Missing test raster: {local}")
         return str(local)
 
-    # Parcheá donde se usa
+    # Patch all call sites in services and repository.
     monkeypatch.setattr("app.lakes.services.download_to_tempfile", fake_download_to_tempfile)
-    # Y también repository (porque ahí importaste igual)
     monkeypatch.setattr("app.lakes.repository.download_to_tempfile", fake_download_to_tempfile)
 
 
@@ -228,3 +307,12 @@ def clear_lakes_caches():
 def _auto_lakes_patches(patch_s3_download, clear_lakes_caches):
     # autouse: applies to every test in tests/lakes/
     yield
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_test_rasters():
+    """
+    Guarantee raster fixtures exist for the entire test session.
+    This removes the need to run make_test_rasters manually.
+    """
+    _ensure_test_rasters_exist(rows=20, cols=20)
+    return None

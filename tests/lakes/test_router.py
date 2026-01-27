@@ -1,5 +1,4 @@
-# tests/lakes/test_router.py
-
+"""Integration-style tests for lakes API routes."""
 from __future__ import annotations
 
 from uuid import UUID, uuid4
@@ -65,9 +64,7 @@ def _geom_payload(dv_id: UUID):
 
 def test_list_lakes_empty(postgis_session, client_postgis):
     resp = client_postgis.get("/lakes")
-    assert resp.status_code == 200
-    items = resp.json()
-    assert items == []
+    assert resp.status_code == 404
 
 
 def test_list_lakes_includes_active_dataset(postgis_session, client_postgis, seeded_lake):
@@ -87,7 +84,7 @@ def test_list_lakes_includes_active_dataset(postgis_session, client_postgis, see
 
 
 def test_list_lakes_active_dataset_none_when_no_active(postgis_session, client_postgis):
-    # Create a lake without ACTIVE dataset version
+    # Create a lake without an ACTIVE dataset version.
     lake_id = uuid4()
     lake = Lake(
         id=lake_id,
@@ -133,7 +130,7 @@ def test_get_lake_ok(postgis_session, client_postgis, seeded_lake):
 def test_get_lake_404(postgis_session, client_postgis):
     resp = client_postgis.get(f"/lakes/{uuid4()}")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Lake not found"
+    assert resp.json()["detail"] == "LAKE_NOT_FOUND"
 
 
 # -----------------------
@@ -155,7 +152,7 @@ def test_get_active_dataset_ok(postgis_session, client_postgis, seeded_lake):
 def test_get_active_dataset_lake_not_found_404(postgis_session, client_postgis):
     resp = client_postgis.get(f"/lakes/{uuid4()}/datasets/active")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Lake not found"
+    assert resp.json()["detail"] == "LAKE_NOT_FOUND"
 
 
 def test_get_active_dataset_dataset_not_found_404(postgis_session, client_postgis):
@@ -178,7 +175,7 @@ def test_get_active_dataset_dataset_not_found_404(postgis_session, client_postgi
 
     resp = client_postgis.get(f"/lakes/{lake_id}/datasets/active")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Dataset not found"
+    assert resp.json()["detail"] == "DATASET_NOT_FOUND"
 
 
 # -----------------------
@@ -197,14 +194,14 @@ def test_get_blocked_mask_ok(postgis_session, client_postgis, seeded_lake, patch
     assert payload.rows == 20
     assert payload.cols == 20
 
-    # contract fields
+    # Contract fields.
     assert payload.encoding == "bitset+zlib+base64"
     assert payload.bit_order == "lsb0"
     assert payload.cell_order == "row_major_cell_id"
     assert isinstance(payload.blocked_bitset_base64, str)
     assert payload.blocked_bitset_base64 != ""
 
-    # optional counts (if service populates them)
+    # Optional counts (if service populates them).
     if payload.blocked_count is not None:
         assert payload.blocked_count >= 0
     if payload.water_count is not None:
@@ -217,7 +214,7 @@ def test_get_blocked_mask_ok(postgis_session, client_postgis, seeded_lake, patch
 def test_get_blocked_mask_lake_not_found_404(postgis_session, client_postgis, patch_s3_download, clear_lakes_caches):
     resp = client_postgis.get(f"/lakes/{uuid4()}/blocked-mask")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Lake not found"
+    assert resp.json()["detail"] == "LAKE_NOT_FOUND"
 
 
 def test_get_blocked_mask_dataset_not_found_404(postgis_session, client_postgis, patch_s3_download, clear_lakes_caches):
@@ -240,7 +237,7 @@ def test_get_blocked_mask_dataset_not_found_404(postgis_session, client_postgis,
 
     resp = client_postgis.get(f"/lakes/{lake_id}/blocked-mask")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Dataset not found"
+    assert resp.json()["detail"] == "DATASET_NOT_FOUND"
 
 
 # -----------------------
@@ -268,23 +265,22 @@ def test_layer_stats_lake_not_found_404(postgis_session, client_postgis, seeded_
     dv_id = seeded_lake["dataset_version_id"]
     resp = client_postgis.get(f"/lakes/{uuid4()}/datasets/{dv_id}/layers/water/stats")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Lake not found"
+    assert resp.json()["detail"] == "LAKE_NOT_FOUND"
 
 
 def test_layer_stats_dataset_not_found_404(postgis_session, client_postgis, seeded_lake, patch_s3_download, clear_lakes_caches):
     lake_id = seeded_lake["lake_id"]
     resp = client_postgis.get(f"/lakes/{lake_id}/datasets/{uuid4()}/layers/water/stats")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Dataset not found"
+    assert resp.json()["detail"] == "DATASET_NOT_FOUND"
 
 
 def test_layer_stats_layer_not_found_404(postgis_session, client_postgis, seeded_lake, patch_s3_download, clear_lakes_caches):
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]
     resp = client_postgis.get(f"/lakes/{lake_id}/datasets/{dv_id}/layers/not_a_layer/stats")
-    assert resp.status_code == 404
-    assert resp.json()["detail"] == "Layer not found"
-
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "INVALID_LAYER_KIND"
 
 # -----------------------
 # /lakes/{lake_id}/grid
@@ -302,11 +298,11 @@ def test_get_grid_manifest_ok(postgis_session, client_postgis, seeded_lake):
     assert payload.grid.cell_size_m == 100.0
     assert payload.grid.crs == "EPSG:3857"
 
-    # Validate bbox_mercator against manual math (top_left origin in seed)
+    # Validate bbox_mercator against manual math (top_left origin in seed).
     expected = _bbox_manual_top_left(0.0, 0.0, cols=20, rows=20, cell_size=100.0)
     assert payload.bbox_mercator == pytest.approx([expected[0], expected[1], expected[2], expected[3]], rel=1e-12)
 
-    # bbox_wgs84: independently transform mercator corners to EPSG:4326
+    # bbox_wgs84: independently transform mercator corners to EPSG:4326.
     t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
     minlon, minlat = t.transform(expected[0], expected[1])
     maxlon, maxlat = t.transform(expected[2], expected[3])
@@ -316,7 +312,7 @@ def test_get_grid_manifest_ok(postgis_session, client_postgis, seeded_lake):
 def test_get_grid_manifest_404(postgis_session, client_postgis):
     resp = client_postgis.get(f"/lakes/{uuid4()}/grid")
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Lake not found"
+    assert resp.json()["detail"] == "LAKE_NOT_FOUND"
 
 
 # -----------------------
@@ -327,7 +323,7 @@ def test_validate_geometry_ok_no_blocked(postgis_session, client_postgis, seeded
     lake_id = seeded_lake["lake_id"]
     dv_id = seeded_lake["dataset_version_id"]
 
-    # Patch router-local symbol (important)
+    # Patch router-local symbol (important).
     def fake_validate_and_rasterize(*, db, lake_id, dataset_version_id, geometry_geojson, geometry_crs, all_touched):
         lake = db.query(Lake).filter(Lake.id == lake_id).one()
         mask = np.zeros((int(lake.grid_rows), int(lake.grid_cols)), dtype=np.uint8)
@@ -389,7 +385,7 @@ def test_validate_geometry_ok_but_blocked_adds_errors(postgis_session, client_po
     assert payload.blocked_cells == 10
     assert payload.blocked_breakdown["water"] == 5
     assert payload.blocked_breakdown["inhabitants"] == 5
-    # Should include both errors
+    # Should include both errors.
     codes = {e.code for e in payload.errors}
     assert "INTERSECTS_WATER" in codes
     assert "INTERSECTS_INHABITANTS" in codes

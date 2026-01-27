@@ -1,3 +1,4 @@
+"""Generate fixture rasters for tests (run manually)."""
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ def write_tif(path: Path, arr: np.ndarray, dtype: str, nodata=None):
     path.parent.mkdir(parents=True, exist_ok=True)
 
     h, w = arr.shape
-    transform = from_origin(0.0, 0.0, 1.0, 1.0)  # no importa para tests de stats/mask
+    transform = from_origin(0.0, 0.0, 1.0, 1.0)  # irrelevant for stats/mask tests
     profile = {
         "driver": "GTiff",
         "height": h,
@@ -30,12 +31,12 @@ def write_tif(path: Path, arr: np.ndarray, dtype: str, nodata=None):
 def main():
     out_dir = Path(__file__).parent / "rasters"
 
-    # Grid OK: 20x20
+    # OK grid: 20x20
     rows, cols = 20, 20
 
     # water: uint8 (1 = water, 0 = land)
     water = np.zeros((rows, cols), dtype=np.uint8)
-    water[0:3, 0:5] = 1  # bloque pequeño
+    water[0:3, 0:5] = 1  # small block
     water[10, 10] = 1
 
     # inhabitants: int32 (>=1 inhabited)
@@ -62,7 +63,7 @@ def main():
     write_tif(out_dir / "inh_mismatch.tif", inh2, "int32", nodata=0)
     write_tif(out_dir / "ci_mismatch.tif", ci2, "float32", nodata=0.0)
 
-    print("OK: rasters creados en", out_dir)
+    print("OK: rasters created in", out_dir)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
+"""Unit tests for bitset encoding helpers."""
 import base64
 import zlib
 
 import numpy as np
 
-from app.lakes.geometry_services import mask_to_bitset_bytes, encode_bitset_zlib_base64
+from app.lakes.geometry_services import encode_bitset_zlib_base64, mask_to_bitset_bytes
 
 
 def _decode_zlib_base64(b64: str) -> bytes:
@@ -11,7 +12,7 @@ def _decode_zlib_base64(b64: str) -> bytes:
 
 
 def test_mask_to_bitset_size_ceil_bytes():
-    # 20*20 = 400 bits -> 50 bytes exactos
+    # 20*20 = 400 bits -> 50 bytes exactly.
     mask = np.zeros((20, 20), dtype=bool)
     b = mask_to_bitset_bytes(mask)
     assert isinstance(b, (bytes, bytearray))
@@ -19,17 +20,17 @@ def test_mask_to_bitset_size_ceil_bytes():
 
 
 def test_mask_to_bitset_lsb0_single_byte():
-    # 1x8: primer bit True -> en lsb0 el byte debe ser 0b00000001 == 1
+    # 1x8: first bit True -> LSB0 byte must be 0b00000001 == 1.
     mask = np.array([[True, False, False, False, False, False, False, False]], dtype=bool)
     b = mask_to_bitset_bytes(mask)
     assert len(b) == 1
     assert b[0] == 1  # lsb0
 
-    # Si fuese msb0 sería 128; esto asegura el contrato "lsb0".
+    # If it were MSB0 it would be 128; this asserts the "lsb0" contract.
 
 
 def test_mask_to_bitset_crosses_byte_boundary():
-    # 1x9: el 9no bit cae en el segundo byte bit0 -> bytes esperados: [0,1]
+    # 1x9: the 9th bit lands in the second byte bit0 -> expected bytes: [0, 1].
     mask = np.array([[False] * 8 + [True]], dtype=bool)
     b = mask_to_bitset_bytes(mask)
     assert len(b) == 2

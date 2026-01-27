@@ -1,14 +1,13 @@
-# tests/users/conftest.py
+"""Shared fixtures for users tests."""
 import pytest
-from pathlib import Path
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from fastapi.testclient import TestClient
 
 import app.sqlite_database as sqlite_database
-from app.sqlite_database import get_sqlite_db
 from app.main import app
+from app.sqlite_database import get_sqlite_db
 
 
 @pytest.fixture(scope="function")
@@ -19,7 +18,7 @@ def db_engine():
         poolclass=StaticPool,
     )
 
-    import app.users.models  # asegura metadata
+    import app.users.models  # noqa: F401
     sqlite_database.SqliteBase.metadata.create_all(bind=engine)
 
     yield engine
@@ -40,9 +39,7 @@ def db_session(db_engine):
 
 @pytest.fixture(scope="function")
 def client(db_engine):
-    """
-    FastAPI client using the in-memory SQLite DB (users).
-    """
+    """FastAPI client using an in-memory SQLite DB for users."""
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
 
     def override_get_sqlite_db():

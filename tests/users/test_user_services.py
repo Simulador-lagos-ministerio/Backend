@@ -1,3 +1,6 @@
+"""Unit tests for user service helpers."""
+from typing import cast
+
 import pytest
 
 from app.users.services import authenticate_user, create_user
@@ -10,8 +13,8 @@ def test_create_user(db_session):
     user = create_user(db_session, email, password)
 
     assert user.id is not None
-    assert bool(user.email == email)
-    assert bool(user.hashed_password != password)
+    assert cast(str, user.email) == email
+    assert cast(str, user.hashed_password) != password
 
 
 def test_create_user_duplicate_email(db_session):

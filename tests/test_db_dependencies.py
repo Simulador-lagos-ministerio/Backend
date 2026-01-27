@@ -1,4 +1,4 @@
-# tests/test_db_dependencies.py
+"""Tests for DB dependency generators."""
 from app import postgis_database, sqlite_database
 
 class DummySession:

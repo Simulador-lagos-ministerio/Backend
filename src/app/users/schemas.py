@@ -1,5 +1,5 @@
+"""Pydantic schemas for auth endpoints."""
 from pydantic import BaseModel, EmailStr
-
 
 # Request/response models for auth flows.
 class UserCreate(BaseModel):

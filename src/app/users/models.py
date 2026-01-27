@@ -1,7 +1,8 @@
+"""SQLAlchemy model for users stored in SQLite."""
 import passlib.hash as _hash
 import sqlalchemy as _sql
 
-from app import sqlite_database 
+from app import sqlite_database
 
 
 # User persistence model.

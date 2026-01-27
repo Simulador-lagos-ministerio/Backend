@@ -1,3 +1,5 @@
+"""Integration-style tests for user auth endpoints."""
+
 def test_signup(client):
     response = client.post(
         "/signup",

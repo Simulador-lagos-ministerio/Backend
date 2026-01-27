@@ -1,6 +1,8 @@
+"""SQLite database setup for user auth storage."""
 import sqlalchemy as _sql
 import sqlalchemy.ext.declarative as _declarative
 import sqlalchemy.orm as _orm
+
 from app.settings import settings
 
 
@@ -10,8 +12,9 @@ SqliteBase = _declarative.declarative_base()
 
 
 def create_sqlite_database():
-    # Import models so metadata has tables
+    # Import models so metadata has tables.
     from app.users import models
+
     # Create tables on startup.
     return SqliteBase.metadata.create_all(bind=SqliteEngine)
 

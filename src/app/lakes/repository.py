@@ -1,3 +1,4 @@
+"""Repository helpers for lakes data access and raster I/O."""
 from __future__ import annotations
 
 from typing import Optional
@@ -8,7 +9,7 @@ import rasterio
 from sqlalchemy.orm import Session
 
 from app.lakes.models import Lake, LakeDatasetVersion, LakeLayer
-from app.storage.s3_client import download_to_tempfile
+from app.storage.s3_client import download_to_tempfile, remove_tempfile
 
 
 _LAYER_KIND_MAP = {
@@ -19,13 +20,27 @@ _LAYER_KIND_MAP = {
 
 
 def get_lake(db: Session, lake_id: UUID) -> Lake:
+    """Fetch a lake by id or raise a domain-specific error code."""
     lake = db.query(Lake).filter(Lake.id == lake_id).first()
     if not lake:
         raise ValueError("LAKE_NOT_FOUND")
+    if (lake.origin_corner or "").lower() != "top_left":
+        raise ValueError("UNSUPPORTED_ORIGIN_CORNER")
     return lake
 
 
+def list_lakes(db: Session) -> list[Lake]:
+    """Return all lakes or raise if none exist or if any are incompatible."""
+    lakes = db.query(Lake).all()
+    if not lakes:
+        raise ValueError("NO_LAKES_FOUND")
+    if any((lake.origin_corner or "").lower() != "top_left" for lake in lakes):
+        raise ValueError("SOME_LAKES_UNSUPPORTED_ORIGIN_CORNER")
+    return lakes
+    
+
 def get_active_dataset_version(db: Session, lake_id: UUID) -> LakeDatasetVersion:
+    """Return the ACTIVE dataset version for a lake or raise."""
     dv = (
         db.query(LakeDatasetVersion)
         .filter(LakeDatasetVersion.lake_id == lake_id)
@@ -37,7 +52,12 @@ def get_active_dataset_version(db: Session, lake_id: UUID) -> LakeDatasetVersion
     return dv
 
 
-def resolve_dataset_version(db: Session, lake_id: UUID, dataset_version_id: Optional[UUID]) -> LakeDatasetVersion:
+def resolve_dataset_version(
+    db: Session,
+    lake_id: UUID,
+    dataset_version_id: Optional[UUID],
+) -> LakeDatasetVersion:
+    """Resolve a specific version or fall back to the ACTIVE one."""
     if dataset_version_id is None:
         return get_active_dataset_version(db, lake_id)
 
@@ -76,5 +96,8 @@ def read_layer_array(layer: LakeLayer) -> np.ndarray:
     Downloads layer COG from storage_uri to a temp file and reads band 1.
     """
     local_path = download_to_tempfile(str(layer.storage_uri))
-    with rasterio.open(local_path) as src:
-        return src.read(1)
+    try:
+        with rasterio.open(local_path) as src:
+            return src.read(1)
+    finally:
+        remove_tempfile(local_path)

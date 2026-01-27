@@ -1,3 +1,4 @@
+"""Unit tests for auth schemas."""
 from app.users.schemas import Token, UserCreate, UserLogin
 
 

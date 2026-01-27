@@ -1,14 +1,16 @@
+"""SQLAlchemy models for lakes datasets stored in PostGIS."""
 import uuid
-from sqlalchemy import Column, String, Integer, Numeric, Text, ForeignKey, DateTime, Enum, UniqueConstraint, func
+
+from geoalchemy2 import Geometry
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, Numeric, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from geoalchemy2 import Geometry
 
 from app.postgis_database import PostgisBase
 
-# For dataset statuses
+# Dataset version lifecycle status.
 DatasetStatus = Enum("DRAFT", "ACTIVE", "DEPRECATED", name="dataset_status")
-# For layer kinds. CI's store contamination coefficients
+# Layer kinds (CI stores contamination coefficients).
 LayerKind = Enum("WATER", "INHABITANTS", "CI", name="layer_kind")
 LayerFormat = Enum("COG", name="layer_format")
 
@@ -27,6 +29,7 @@ class Lake(PostgisBase):
     origin_x = Column(Numeric, nullable=False)
     origin_y = Column(Numeric, nullable=False)
 
+    # Optional polygon defining the lake extent in EPSG:3857.
     extent_geom = Column(Geometry("POLYGON", srid=3857), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

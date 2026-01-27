@@ -1,3 +1,4 @@
+"""Unit tests for geometry reprojection."""
 import pytest
 from shapely.geometry import Polygon
 
@@ -5,7 +6,7 @@ from app.lakes.geometry_services import reproject_geometry
 
 
 def _square_wgs84():
-    # Cuadrado 0.01° x 0.01° cerca del origen
+    # 0.01° x 0.01° square near the origin.
     return Polygon([
         (0.0, 0.0),
         (0.0, 0.01),
@@ -31,10 +32,10 @@ def test_reproject_wgs84_to_mercator_changes_coordinates():
     assert out.is_empty is False
     assert out.is_valid is True
 
-    # Las coords deberían cambiar (grados -> metros)
+    # Coordinates should change (degrees -> meters).
     assert out.equals_exact(geom, tolerance=0.0) is False
 
-    # Cerca del origen: (0,0) se transforma cerca de (0,0) en mercator
+    # Near the origin, (0,0) remains close to (0,0) in Mercator.
     x0, y0 = list(out.exterior.coords)[0]
     assert abs(x0) < 1e-6
     assert abs(y0) < 1e-6
@@ -48,5 +49,5 @@ def test_reproject_roundtrip_wgs84_to_mercator_to_wgs84_is_close():
     assert back.is_empty is False
     assert back.is_valid is True
 
-    # roundtrip puede tener error numérico pequeño
+    # Roundtrip may have small numerical error.
     assert back.equals_exact(geom, tolerance=1e-8) is True
