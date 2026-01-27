@@ -19,7 +19,7 @@ boto3==1.34.162
 
 # Raster + geospatial
 numpy==2.0.1
-rasterio>=1.5.0
+rasterio>=1.4.4
 shapely>=2.0
 pyproj>=3.6
 
