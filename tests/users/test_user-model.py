@@ -1,13 +1,17 @@
+"""Unit tests for the User model."""
+from typing import cast
+
 import pytest
-from src.models import User
 from passlib.hash import bcrypt
+
+from app.users.models import User
 
 
 class TestUserModel:
-    """Test suite for User model"""
+    """Test suite for User model."""
 
     def test_user_creation(self, db_session):
-        """Test creating a user instance"""
+        """Create a user instance and persist it."""
         user = User(
             email="test@example.com",
             hashed_password=bcrypt.hash("testpassword123")
@@ -17,11 +21,11 @@ class TestUserModel:
         db_session.refresh(user)
 
         assert user.id is not None
-        assert user.email == "test@example.com"
+        assert cast(str, user.email) == "test@example.com"
         assert user.hashed_password is not None
 
     def test_user_email_unique(self, db_session):
-        """Test that email field is unique"""
+        """Email must be unique."""
         from sqlalchemy.exc import IntegrityError
         
         user1 = User(
@@ -41,7 +45,7 @@ class TestUserModel:
             db_session.commit()
 
     def test_verify_password_correct(self, db_session):
-        """Test password verification with correct password"""
+        """Password verification should succeed for correct password."""
         password = "correctpassword"
         user = User(
             email="verify@example.com",
@@ -53,7 +57,7 @@ class TestUserModel:
         assert user.verify_password(password) is True
 
     def test_verify_password_incorrect(self, db_session):
-        """Test password verification with incorrect password"""
+        """Password verification should fail for incorrect password."""
         user = User(
             email="verify2@example.com",
             hashed_password=bcrypt.hash("correctpassword")
@@ -64,11 +68,11 @@ class TestUserModel:
         assert user.verify_password("wrongpassword") is False
 
     def test_user_table_name(self):
-        """Test that table name is correctly set"""
+        """Table name is fixed."""
         assert User.__tablename__ == "users"
 
     def test_user_columns_exist(self):
-        """Test that all required columns exist"""
-        assert hasattr(User, 'id')
-        assert hasattr(User, 'email')
-        assert hasattr(User, 'hashed_password')
+        """Ensure required columns exist on the model."""
+        assert hasattr(User, "id")
+        assert hasattr(User, "email")
+        assert hasattr(User, "hashed_password")

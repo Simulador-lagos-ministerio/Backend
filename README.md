@@ -2,17 +2,17 @@
 
 ## Creating a Virtual Environment
 
-- python3 -m venv venv
+- python3.13 -m venv venv
 
 ## Activating the Virtual Environment
 
 - source venv/bin/activate
 
-### Installing Dependencies
+## Installing Dependencies
 
 - pip3 install -r requirements.txt
 
-## How to run
+## How to run (local)
 
 ### 1. Navigate to the application directory:
 
@@ -20,11 +20,21 @@
 
 ### 2. Run the server:
 
-- uvicorn main:app --reload
+- uvicorn app.main:app --reload
 
-## How to test (after install)
+## How to run (Docker)
 
-### 1. Navigate to the application directory:
+### 1. Navigate to the Backend directory:
+
+- cd Backend/
+
+### 2. Build and run containers:
+
+- docker compose up --build
+
+## How to test
+
+### 1. Navigate to the Backend directory:
 
 - cd Backend/
 
@@ -35,6 +45,10 @@
 ## Stopping the Server
 
 - Ctrl + C
+
+## Stopping Docker
+
+- docker compose down
 
 ## Deactivating the Virtual Environment
 

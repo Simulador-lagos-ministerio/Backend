@@ -1,39 +1,47 @@
+"""User auth helpers and token utilities."""
 from datetime import datetime, timedelta
-from passlib.hash import bcrypt
+
 from jose import jwt
+from passlib.hash import bcrypt
+from sqlalchemy.exc import IntegrityError
 
-from src import database as _database
-from src import models as _models
+from app.users import models as _models
 
-# Simple JWT setup
+# Token settings (override via environment in production).
 SECRET_KEY = "dev-secret"
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_MINUTES = 60 * 24 * 60 #expira en 2 meses
+TOKEN_EXPIRE_MINUTES = 60 * 24 * 60  # 60 days
 
-# in-memory logout store
+# Placeholder in-memory blacklist (not wired yet).
 revoked_tokens = set()
 
-def create_database():
-    return _database.Base.metadata.create_all(bind=_database.engine)
-
-# -------- USERS --------
 
 def get_user_by_email(db, email: str):
+    """Return user by email or None."""
     return db.query(_models.User).filter(_models.User.email == email).first()
 
 
 def create_user(db, email: str, password: str):
+    """Create a user with a hashed password."""
+    if get_user_by_email(db, email):
+        raise ValueError("Email already registered")
+
     user = _models.User(
         email=email,
         hashed_password=bcrypt.hash(password),
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ValueError("Email already registered")
     db.refresh(user)
     return user
 
 
 def authenticate_user(db, email: str, password: str):
+    """Return user when credentials are valid; otherwise None."""
     user = get_user_by_email(db, email)
     if not user:
         return None
@@ -42,9 +50,8 @@ def authenticate_user(db, email: str, password: str):
     return user
 
 
-# -------- TOKENS --------
-
 def create_token(email: str):
+    """Create a JWT with the user email as subject."""
     payload = {
         "sub": email,
         "exp": datetime.utcnow() + timedelta(minutes=TOKEN_EXPIRE_MINUTES),

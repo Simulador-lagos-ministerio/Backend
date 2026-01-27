@@ -1,0 +1,31 @@
+"""Auth endpoints for user signup/signin."""
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.sqlite_database import get_sqlite_db
+from app.users import schemas as _schemas
+from app.users import services as _services
+
+router = APIRouter()
+
+
+@router.post("/signup", response_model=_schemas.Token)
+def signup(user: _schemas.UserCreate, db: Session = Depends(get_sqlite_db)):
+    """Register a new user and return an access token."""
+    if _services.get_user_by_email(db, user.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    created = _services.create_user(db, user.email, user.password)
+    token = _services.create_token(created.email)
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/signin", response_model=_schemas.Token)
+def signin(user: _schemas.UserLogin, db: Session = Depends(get_sqlite_db)):
+    """Authenticate a user and return an access token."""
+    auth_user = _services.authenticate_user(db, user.email, user.password)
+    if not auth_user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = _services.create_token(auth_user.email)
+    return {"access_token": token, "token_type": "bearer"}
