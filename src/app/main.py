@@ -3,11 +3,17 @@ from contextlib import asynccontextmanager
 import os
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.settings import settings
 from app.postgis_database import create_postgis_database
 from app.sqlite_database import create_sqlite_database
+
 from app.lakes.router import router as lakes_router
 from app.users.router import router as users_router
+from app.simulations.router import router as simulations_router
+
+
 
 
 @asynccontextmanager
@@ -26,3 +32,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(users_router, tags=["users"])
 app.include_router(lakes_router, tags=["lakes"])
+app.include_router(simulations_router, tags=["simulations"])
+
+# origins = settings.cors_origins.split(",") if settings.cors_origins else ["*"]
+origins = settings.cors_origins.split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
