@@ -12,10 +12,10 @@ def _get_s3():
     """Create a boto3 client using settings (endpoint, keys, region)."""
     return boto3.client(
         "s3",
-        endpoint_url=settings.s3_endpoint,
-        aws_access_key_id=settings.s3_access_key,
-        aws_secret_access_key=settings.s3_secret_key,
-        region_name=settings.s3_region,
+        endpoint_url=settings.S3_ENDPOINT_URL,
+        aws_access_key_id=settings.S3_ACCESS_KEY,
+        aws_secret_access_key=settings.S3_SECRET_KEY,
+        region_name=settings.S3_REGION,
     )
 
 def parse_s3_uri(uri: str) -> tuple[str, str]:
@@ -25,6 +25,8 @@ def parse_s3_uri(uri: str) -> tuple[str, str]:
         raise ValueError(f"Unsupported URI scheme: {uri}")
     bucket = parsed.netloc
     key = parsed.path.lstrip("/")
+    if not bucket or not key:
+        raise ValueError(f"Invalid S3 URI (missing bucket or key): {uri}")
     return bucket, key
 
 def download_to_tempfile(uri: str) -> str:

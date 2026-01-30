@@ -1,44 +1,30 @@
-"""Repository helpers for simulations persistence."""
 from __future__ import annotations
 
 from uuid import UUID
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.simulations.models import Simulation, Subdivision
+from app.common.errors import not_found
+from app.simulations.models import Simulation, Subdivision, SimulationRun
 
 
 def get_simulation(db: Session, simulation_id: UUID) -> Simulation:
-    sim = db.query(Simulation).filter(Simulation.id == simulation_id).first()
+    sim = db.execute(select(Simulation).where(Simulation.id == simulation_id)).scalar_one_or_none()
     if not sim:
-        raise ValueError("SIMULATION_NOT_FOUND")
+        raise not_found("SIMULATION_NOT_FOUND", "Simulation not found.", {"simulation_id": str(simulation_id)})
     return sim
 
 
-def list_subdivisions(db: Session, simulation_id: UUID) -> list[Subdivision]:
-    return (
-        db.query(Subdivision)
-        .filter(Subdivision.simulation_id == simulation_id)
-        .order_by(Subdivision.created_at.asc())
-        .all())
-  
-
-def get_subdivision(db: Session, subdivision_id: UUID, simulation_id: UUID) -> Subdivision:
-    sub = (
-        db.query(Subdivision)
-        .filter(Subdivision.id == subdivision_id)
-        .filter(Subdivision.simulation_id == simulation_id)
-        .first()
-    )
+def get_subdivision(db: Session, subdivision_id: UUID) -> Subdivision:
+    sub = db.execute(select(Subdivision).where(Subdivision.id == subdivision_id)).scalar_one_or_none()
     if not sub:
-        raise ValueError("SUBDIVISION_NOT_FOUND")
+        raise not_found("SUBDIVISION_NOT_FOUND", "Subdivision not found.", {"subdivision_id": str(subdivision_id)})
     return sub
 
-def list_simulations_by_user_and_lake(db: Session, *, user_id: int, lake_id: UUID) -> list[Simulation]:
-    return (
-        db.query(Simulation)
-        .filter(Simulation.user_id == user_id)
-        .filter(Simulation.lake_id == lake_id)
-        .order_by(Simulation.created_at.desc())
-        .all()
-    )
 
+def get_run(db: Session, run_id: UUID) -> SimulationRun:
+    run = db.execute(select(SimulationRun).where(SimulationRun.id == run_id)).scalar_one_or_none()
+    if not run:
+        raise not_found("RUN_NOT_FOUND", "Run not found.", {"run_id": str(run_id)})
+    return run

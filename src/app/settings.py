@@ -1,30 +1,56 @@
-"""App settings and environment configuration."""
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pyparsing import Optional
 
-BASE_DIR = Path(__file__).resolve().parents[2]  # .../Backend
-DEFAULT_SQLITE_PATH = BASE_DIR / "database.db"
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    """
+    Centralized application settings loaded from environment (.env).
+    """
 
-    env: str = "dev"
+    # Project root directory
+    PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 
-    sqlite_url: str = "sqlite:///./database.db"
-    postgis_url: str = "postgresql+psycopg2://maps_user:maps_pass@localhost:5433/maps"
+    model_config = SettingsConfigDict(
+        env_file=str(PROJECT_ROOT / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-    s3_endpoint: str = "http://localhost:9000"
-    s3_access_key: str = "minioadmin"
-    s3_secret_key: str = "minioadmin"
-    s3_bucket: str = "maps"
-    s3_region: str = "us-east-1"
+    # Environment
+    ENV: str = Field(default="development", description="development|test|production")
+    DEBUG: bool = Field(default=False)
 
-    jwt_secret_key: str = "dev-secret"         # override via .env
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24 * 60     # 60 days
+    # Database (single Postgres/PostGIS for everything)
+    POSTGIS_URL: str = Field(
+        default="postgresql+psycopg2://postgres:postgres@localhost:5432/postgres"
+    )
 
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"         # "http://...,..."
+    # CORS
+    CORS_ORIGINS: str = Field(default="http://localhost:5173")
+
+    # JWT (Access token)
+    JWT_SECRET_KEY: str = Field(default="CHANGE_ME_IN_PROD")
+    JWT_ALGORITHM: str = Field(default="HS256")
+    JWT_EXPIRE_MINUTES: int = Field(default=30)
+
+    # Refresh tokens
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30)
+
+    # DB init behavior: in production you should use Alembic migrations.
+    # This is a safe default: do NOT auto-create tables in production.
+    DB_INIT_ON_STARTUP: bool = Field(default=True)
+
+    # S3 / MinIO
+    S3_ENDPOINT_URL: Optional[str] = Field(default="http://localhost:9000")
+    S3_ACCESS_KEY: str = Field(default="minioadmin")
+    S3_SECRET_KEY: str = Field(default="minioadmin")
+    S3_BUCKET: str = Field(default="lakes")
+    S3_REGION: str = Field(default="us-east-1")
+
 
 settings = Settings()

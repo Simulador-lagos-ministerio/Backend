@@ -1,17 +1,34 @@
-"""Pydantic schemas for auth endpoints."""
-from pydantic import BaseModel, EmailStr
+from __future__ import annotations
 
-# Request/response models for auth flows.
+from pydantic import BaseModel, EmailStr, Field
+
+
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=6, max_length=256)
 
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=6, max_length=256)
 
 
-class Token(BaseModel):
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=32)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(min_length=32)
+
+
+class TokenPair(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    expires_in: int  # seconds
+    refresh_token: str
+    refresh_expires_in: int  # seconds
+
+
+class MeResponse(BaseModel):
+    id: str
+    email: EmailStr

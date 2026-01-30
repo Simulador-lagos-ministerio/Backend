@@ -1,337 +1,166 @@
-"""API routes for lakes and geometry endpoints."""
-from typing import NoReturn, cast
+from __future__ import annotations
+
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.postgis_database import get_postgis_db
-from app.lakes.models import Lake, LakeDatasetVersion
+from app.postgis_database import get_db
+from app.common.responses import json_ok, json_fail
 
-from app.lakes.schemas import (
-    DatasetVersionSummary,
-    LakeSummary,
-    LakeDetail,
-    GridSpec,
-    BlockedMaskResponse,
-    LayerStats,
-    GridManifest,
-    GeometryInput,
-    GeometryValidationResponse,
-    RasterizeResponse,
-    GeometryErrorItem,
-)
-
+from app.lakes.schemas import GeometryInput
 from app.lakes.services import (
     compute_blocked_mask,
     compute_layer_stats,
-    selection_mask_to_bitset_b64,
+    get_active_dataset,
+    get_grid_manifest,
+    get_lake_detail,
+    list_lakes,
     validate_and_rasterize_geometry,
 )
 
-from app.lakes.repository import (
-    get_lake as repo_get_lake,
-    get_active_dataset_version,
-    list_lakes as repo_list_lakes,
-)
-
-from app.lakes.geometry_services import bbox_in_lake_crs, bbox_to_wgs84
-
-router = APIRouter()
-
-# Supported API layer kinds.
-_ALLOWED_LAYER_KINDS = {"water", "inhabitants", "ci"}
-
-# Service sometimes returns codes that are not part of GeometryErrorItem Literal
-_GEOMETRY_ERROR_CODE_MAP = {
-    "GEOMETRY_INVALID": "INVALID_GEOMETRY",
-}
+router = APIRouter(prefix="/lakes")
 
 
-def _raise_mapped_error(code: str) -> NoReturn:
-    """Map domain error codes to HTTP errors with stable response contracts."""
-    if code in {"LAKE_NOT_FOUND", "DATASET_NOT_FOUND", "NO_LAKES_FOUND"}:
-        raise HTTPException(status_code=404, detail=code)
-
-    if code in {
-        "INVALID_GEOJSON", "INVALID_GEOMETRY", "UNSUPPORTED_GEOMETRY",
-        "EMPTY_SELECTION", "INVALID_SELECTION", "INVALID_LAYER_KIND"
-    }:
-        raise HTTPException(status_code=400, detail=code)
-
-    if code in {"LAYER_NOT_FOUND", "DIMENSION_MISMATCH", "UNSUPPORTED_ORIGIN_CORNER", "SOME_LAKES_UNSUPPORTED_ORIGIN_CORNER"}:
-        raise HTTPException(status_code=500, detail=code)
-
-    raise HTTPException(status_code=400, detail=code)
+def _map_lakes_error(code: str) -> tuple[int, str]:
+    """
+    Convert domain error codes into HTTP status and a human-readable message.
+    Keep this mapping stable for production clients.
+    """
+    if code in {"LAKE_NOT_FOUND", "DATASET_NOT_FOUND", "LAYER_NOT_FOUND"}:
+        return 404, code
+    if code in {"UNSUPPORTED_ORIGIN_CORNER", "SOME_LAKES_UNSUPPORTED_ORIGIN_CORNER"}:
+        return 400, code
+    if code in {"DIMENSION_MISMATCH"}:
+        return 500, code
+    return 400, code
 
 
-
-@router.get("/lakes", response_model=list[LakeSummary])
-def list_lakes(db: Session = Depends(get_postgis_db)):
-    """List lakes with grid metadata and current ACTIVE dataset id, if any."""
+@router.get("")
+def get_lakes(db: Session = Depends(get_db)):
+    """
+    List lakes (for lake selection UI).
+    """
     try:
-        lakes = repo_list_lakes(db)
+        items = list_lakes(db)
+        return json_ok(data=[i.model_dump() for i in items])
     except ValueError as e:
-        _raise_mapped_error(str(e))
-    out: list[LakeSummary] = []
-
-    for lake in lakes:
-        
-        try:
-            active = get_active_dataset_version(db, cast(UUID, lake.id))
-        except ValueError:
-            active = None
-
-        out.append(
-            LakeSummary(
-                id=cast(UUID, lake.id),
-                name=cast(str, lake.name),
-                active_dataset_version_id=cast(UUID, active.id) if active else None,
-                grid=GridSpec(
-                    rows=cast(int, lake.grid_rows),
-                    cols=cast(int, lake.grid_cols),
-                    cell_size_m=cast(float, lake.cell_size_m),
-                    crs=cast(str, lake.crs),
-                    origin_corner=cast(str, lake.origin_corner),
-                    origin_x=cast(float, lake.origin_x),
-                    origin_y=cast(float, lake.origin_y),
-                ),
-            )
-        )
-    return out
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(code=str(e), message=msg, status_code=status)
 
 
-@router.get("/lakes/{lake_id}", response_model=LakeDetail)
-def get_lake(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    """Get a lake summary by id."""
+@router.get("/{lake_id}")
+def get_lake(lake_id: UUID, db: Session = Depends(get_db)):
+    """
+    Lake detail including grid and bounds.
+    """
     try:
-        lake = repo_get_lake(db, lake_id)
+        detail = get_lake_detail(db, lake_id)
+        return json_ok(data=detail.model_dump())
     except ValueError as e:
-        _raise_mapped_error(str(e))
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(code=str(e), message=msg, status_code=status, meta={"lake_id": str(lake_id)})
 
+
+@router.get("/{lake_id}/grid")
+def lake_grid(lake_id: UUID, db: Session = Depends(get_db)):
+    """
+    Map bootstrap endpoint for Leaflet:
+    returns grid spec + bounds in CRS and WGS84.
+    """
     try:
-        active = get_active_dataset_version(db, cast(UUID, lake.id))
-    except ValueError:
-        active = None
-
-    return LakeDetail(
-        id=cast(UUID, lake.id),
-        name=cast(str, lake.name),
-        active_dataset_version_id=cast(UUID, active.id) if active else None,
-        grid=GridSpec(
-            rows=cast(int, lake.grid_rows),
-            cols=cast(int, lake.grid_cols),
-            cell_size_m=cast(float, lake.cell_size_m),
-            crs=cast(str, lake.crs),
-            origin_corner=cast(str, lake.origin_corner),
-            origin_x=cast(float, lake.origin_x),
-            origin_y=cast(float, lake.origin_y),
-        ),
-        extent_bbox=None,
-    )
-
-
-@router.get("/lakes/{lake_id}/blocked-mask", response_model=BlockedMaskResponse)
-def get_blocked_mask(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    """Return the precomputed blocked mask for ACTIVE dataset."""
-    try:
-        lake = repo_get_lake(db, lake_id)
+        manifest = get_grid_manifest(db, lake_id)
+        return json_ok(data=manifest.model_dump())
     except ValueError as e:
-        _raise_mapped_error(str(e))
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(code=str(e), message=msg, status_code=status, meta={"lake_id": str(lake_id)})
 
+
+@router.get("/{lake_id}/datasets/active")
+def active_dataset(lake_id: UUID, db: Session = Depends(get_db)):
+    """
+    Return the ACTIVE dataset version for this lake.
+    """
     try:
-        dv = get_active_dataset_version(db, lake_id)
-        return compute_blocked_mask(db, lake_id, cast(UUID, dv.id))
+        dv = get_active_dataset(db, lake_id)
+        return json_ok(data=dv.model_dump())
     except ValueError as e:
-        _raise_mapped_error(str(e))
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(code=str(e), message=msg, status_code=status, meta={"lake_id": str(lake_id)})
 
 
-@router.get("/lakes/{lake_id}/datasets/active", response_model=DatasetVersionSummary)
-def get_active_dataset(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    """Return ACTIVE dataset metadata for a given lake."""
+@router.post("/{lake_id}/validate-geometry")
+def validate_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depends(get_db)):
+    """
+    UX-friendly:
+    - always returns HTTP 200 with ok=true/false for drawing/selection issues
+    - returns 4xx/5xx for hard failures (missing lake/dataset/layers, misconfig)
+    """
     try:
-        lake = repo_get_lake(db, lake_id)
-    except ValueError as e:
-        _raise_mapped_error(str(e))
-    try:
-        dv = get_active_dataset_version(db, lake_id)
-        return DatasetVersionSummary(
-            id=cast(UUID, dv.id),
-            lake_id=cast(UUID, dv.lake_id),
-            version=cast(int, dv.version),
-            status=cast(str, dv.status),
-            notes=cast(str, dv.notes),
+        res = validate_and_rasterize_geometry(
+            db,
+            lake_id=lake_id,
+            geometry_obj=payload.geometry,
+            geometry_crs=payload.geometry_crs,
+            all_touched=payload.all_touched,
+            dataset_version_id=payload.dataset_version_id,
         )
     except ValueError as e:
-        _raise_mapped_error(str(e))
+        # Hard failures -> 4xx/5xx
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(code=str(e), message=msg, status_code=status, meta={"lake_id": str(lake_id)})
 
-
-@router.get(
-    "/lakes/{lake_id}/datasets/{dataset_version_id}/layers/{layer_kind}/stats",
-    response_model=LayerStats,
-)
-def layer_stats(lake_id: UUID, dataset_version_id: UUID, layer_kind: str, db: Session = Depends(get_postgis_db)):
-    """Return computed stats for a given layer."""
-    if layer_kind not in _ALLOWED_LAYER_KINDS:
-        _raise_mapped_error("INVALID_LAYER_KIND")
-
-    try:
-        return compute_layer_stats(db, lake_id, dataset_version_id, layer_kind)
-    except ValueError as e:
-        _raise_mapped_error(str(e))
-
-
-@router.get("/lakes/{lake_id}/grid", response_model=GridManifest)
-def get_lake_grid_manifest(lake_id: UUID, db: Session = Depends(get_postgis_db)):
-    """Return grid spec and bbox info for frontend mapping clients."""
-    try:
-        lake = repo_get_lake(db, lake_id)
-    except ValueError as e:
-        _raise_mapped_error(str(e))
-
-    grid = GridSpec(
-        rows=cast(int, lake.grid_rows),
-        cols=cast(int, lake.grid_cols),
-        cell_size_m=cast(float, lake.cell_size_m),
-        crs=cast(str, lake.crs),
-        origin_corner=cast(str, lake.origin_corner),
-        origin_x=cast(float, lake.origin_x),
-        origin_y=cast(float, lake.origin_y),
-    )
-
-    bbox_m = bbox_in_lake_crs(lake)
-    bbox_w = bbox_to_wgs84(bbox_m, cast(str, lake.crs))
-
-    return GridManifest(
-        lake_id=cast(UUID, lake.id),
-        grid=grid,
-        bbox_mercator=[bbox_m[0], bbox_m[1], bbox_m[2], bbox_m[3]],
-        bbox_wgs84=[bbox_w[0], bbox_w[1], bbox_w[2], bbox_w[3]],
-    )
-
-
-@router.post("/lakes/{lake_id}/validate-geometry", response_model=GeometryValidationResponse)
-def validate_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depends(get_postgis_db)):
-    """Validate a geometry and return mask metadata without raising 404."""
-    result = validate_and_rasterize_geometry(
-        db=db,
-        lake_id=lake_id,
-        dataset_version_id=payload.dataset_version_id,
-        geometry_geojson=payload.geometry,
-        geometry_crs=payload.geometry_crs,
-        all_touched=payload.all_touched,
-    )
-
-    if "code" in result:
-        raw_code = result["code"]
-        code_norm = _GEOMETRY_ERROR_CODE_MAP.get(raw_code, raw_code)
-
-        lake = result.get("lake")
-        dv_id = result.get("dataset_version_id") or payload.dataset_version_id
-
-        # Minimal response when the lake cannot be loaded.
-        if lake is None:
-            return GeometryValidationResponse(
-                ok=False,
-                lake_id=lake_id,
-                dataset_version_id=dv_id if dv_id else UUID(int=0),
-                rows=0,
-                cols=0,
-                selected_cells=0,
-                blocked_cells=0,
-                blocked_breakdown={"water": 0, "inhabitants": 0},
-                selection_bitset_base64=None,
-                errors=[GeometryErrorItem(code=code_norm, message=result.get("message", ""))],
-            )
-
-        rows, cols = int(lake.grid_rows), int(lake.grid_cols)
-
-        selection_b64 = None
-        if result.get("selection_mask") is not None:
-            selection_b64 = selection_mask_to_bitset_b64(result["selection_mask"])
-
-        selected_cells = 0
-        if result.get("selection_mask") is not None:
-            selected_cells = int(result["selection_mask"].sum())
-
-        return GeometryValidationResponse(
-            ok=False,
-            lake_id=lake.id,
-            dataset_version_id=cast(UUID, dv_id),
-            rows=rows,
-            cols=cols,
-            selected_cells=selected_cells,
-            blocked_cells=0,
-            blocked_breakdown={"water": 0, "inhabitants": 0},
-            selection_bitset_base64=selection_b64,
-            errors=[GeometryErrorItem(code=code_norm, message=result.get("message", ""))],
+    if not res.ok:
+        return json_fail(
+            code="INVALID_SELECTION",
+            message="Geometry selection is invalid.",
+            meta={
+                "selected_cells": res.selected_cells,
+                "water_hits": res.blocked_breakdown.get("water", 0),
+                "inhabitants_hits": res.blocked_breakdown.get("inhabitants", 0),
+                "nodata_hits": res.blocked_breakdown.get("nodata", 0),
+                "blocked_cells": res.blocked_cells,
+            },
+            data=res.model_dump(),
+            status_code=200,
         )
 
-    lake = result["lake"]
-    dv_id = result["dataset_version_id"]
-    rows, cols = int(lake.grid_rows), int(lake.grid_cols)
-
-    selection_b64 = selection_mask_to_bitset_b64(result["selection_mask"])
-
-    errors: list[GeometryErrorItem] = []
-    if result["blocked_breakdown"]["water"] > 0:
-        errors.append(GeometryErrorItem(code="INTERSECTS_WATER", message="Selection intersects water cells"))
-    if result["blocked_breakdown"]["inhabitants"] > 0:
-        errors.append(GeometryErrorItem(code="INTERSECTS_INHABITANTS", message="Selection intersects inhabited cells"))
-    if result["selected_cells"] == 0:
-        errors.append(GeometryErrorItem(code="EMPTY_SELECTION", message="0 selected cells"))
-
-    return GeometryValidationResponse(
-        ok=bool(result["ok"]),
-        lake_id=lake.id,
-        dataset_version_id=dv_id,
-        rows=rows,
-        cols=cols,
-        selected_cells=int(result["selected_cells"]),
-        blocked_cells=int(result["blocked_cells"]),
-        blocked_breakdown=result["blocked_breakdown"],
-        selection_bitset_base64=selection_b64,
-        errors=errors,
-    )
+    return json_ok(data=res.model_dump())
 
 
-@router.post("/lakes/{lake_id}/rasterize-geometry", response_model=RasterizeResponse)
-def rasterize_geometry(lake_id: UUID, payload: GeometryInput, db: Session = Depends(get_postgis_db)):
-    """Validate and rasterize geometry; fail fast on invalid payloads."""
-    result = validate_and_rasterize_geometry(
-        db=db,
-        lake_id=lake_id,
-        dataset_version_id=payload.dataset_version_id,
-        geometry_geojson=payload.geometry,
-        geometry_crs=payload.geometry_crs,
-        all_touched=payload.all_touched,
-    )
-
-    # For rasterize we fail hard if invalid
-    if "code" in result:
-        raw_code = result["code"]
-        code = _GEOMETRY_ERROR_CODE_MAP.get(raw_code, raw_code)
-        msg = result.get("message", code)
-        raise HTTPException(status_code=400, detail={"code": code, "message": msg})
-
-    if not result["ok"]:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "INVALID_SELECTION", "message": "Invalid selection"},
+@router.get("/{lake_id}/datasets/{dataset_version_id}/layers/{layer_kind}/stats")
+def layer_stats(lake_id: UUID, dataset_version_id: UUID, layer_kind: str, db: Session = Depends(get_db)):
+    """
+    Layer statistics endpoint.
+    """
+    try:
+        stats = compute_layer_stats(db, lake_id=lake_id, dataset_version_id=dataset_version_id, layer_kind=layer_kind)
+        return json_ok(data=stats.model_dump())
+    except ValueError as e:
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(
+            code=str(e),
+            message=msg,
+            status_code=status,
+            meta={"lake_id": str(lake_id), "dataset_version_id": str(dataset_version_id), "layer_kind": layer_kind},
         )
 
-    lake = result["lake"]
-    dv_id = result["dataset_version_id"]
-    rows, cols = int(lake.grid_rows), int(lake.grid_cols)
 
-    selection_b64 = selection_mask_to_bitset_b64(result["selection_mask"])
-    cell_count = int(result["selected_cells"])
-
-    return RasterizeResponse(
-        lake_id=lake.id,
-        dataset_version_id=dv_id,
-        rows=rows,
-        cols=cols,
-        cell_count=cell_count,
-        selection_bitset_base64=selection_b64,
-    )
+@router.get("/{lake_id}/blocked-mask")
+def blocked_mask(lake_id: UUID, dataset_version_id: Optional[UUID] = None, db: Session = Depends(get_db)):
+    """
+    Return blocked mask for water OR inhabitants (and nodata as blocked).
+    dataset_version_id is optional; if omitted, uses ACTIVE dataset.
+    """
+    try:
+        payload = compute_blocked_mask(db, lake_id=lake_id, dataset_version_id=dataset_version_id)
+        return json_ok(data=payload.model_dump())
+    except ValueError as e:
+        status, msg = _map_lakes_error(str(e))
+        return json_fail(
+            code=str(e),
+            message=msg,
+            status_code=status,
+            meta={"lake_id": str(lake_id), "dataset_version_id": str(dataset_version_id) if dataset_version_id else "ACTIVE"},
+        )
